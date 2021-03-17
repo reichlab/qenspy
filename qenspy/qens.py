@@ -5,9 +5,10 @@ import tensorflow_probability as tfp
 tfb = tfp.bijectors
 
 class QEns():
-    def fill_missing_and_renormalize(self, q, w):
+    def broadcast_w_and_renormalize(self, q, w):
         """
-        Generate prediction from a weighted mean quantile forecast ensemble.
+        Broadcast w to the same shape as q, set weights corresponding to missing
+        entries of q to 0, and re-normalize so that the weights sum to 1.
 
         Parameters
         ----------
@@ -20,16 +21,31 @@ class QEns():
 
         Returns
         -------
-        (q, w): tuple with two 3D tensors with shape (N, K, M)
-            - q is a copy of the argument q with missing values replaced by 0
-            - w is N copies of the argument w with weights w[i,k,m] set to 0
-            at indices where q[i,k,m] is 0, and the weights re-normalized to
-            sum to 1 within each combination of i and k.
+        broadcast_w: 3D tensor with shape (N, K, M)
+            broadcast_w has N copies of the argument w with weights w[i,k,m] set
+            to 0 at indices where q[i,k,m] is nan. The weights are then
+            re-normalized to sum to 1 within each combination of i and k.
         """
-        # note! handling of missingness and renormalization is not done yet!
+        # broadcast w to the same shape as q, creating N copies of w
         q_shape = tf.shape(q).numpy()
-        expanded_w = tf.broadcast_to(w, q_shape)
-        return (q, expanded_w)
+        broadcast_w = tf.broadcast_to(w, q_shape)
+
+        # if there is missingness, adjust entries of broadcast_w
+        missing_mask = tf.math.is_nan(q)
+        if tf.reduce_any(missing_mask):
+            # nonmissing mask has shape (N, K, M), with entries
+            # 1 where q had missing values and 0 elsewhere
+            nonmissing_mask = tf.cast(
+                tf.logical_not(missing_mask),
+                dtype = broadcast_w.dtype)
+
+            # set weights corresponding to missing entries of q to 0
+            broadcast_w = tf.math.multiply(broadcast_w, nonmissing_mask)
+
+            # renormalize weights to sum to 1 along the model axis
+            (broadcast_w, _) = tf.linalg.normalize(broadcast_w, ord = 1, axis = 2)
+
+        return broadcast_w
 
     def unpack_params(self, param_vec, K, M, tau_groups):
         """
@@ -95,11 +111,11 @@ class MeanQEns(QEns):
             Ensemble forecasts for each observation case i = 1, ..., N and
             quantile level k = 1, ..., K
         """
-        # TODO: handle missing values in q
-        (q, w) = super().fill_missing_and_renormalize(q, w)
+        # adjust w to handle missing values in q
+        w = super().broadcast_w_and_renormalize(q, w)
 
         # calculate weighted mean along the M axis for each combination of N, K
-        ensemble_q = tf.reduce_sum(q * w, axis = 2)
+        ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q, w), axis = 2)
 
         # return
         return ensemble_q
