@@ -39,6 +39,7 @@ class Test_QEns(unittest.TestCase):
       tau_groups=tau_groups
     )
     w = params_dict['w']
+    w_np = w.numpy()
     q_np = np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3))
     q_np[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] = np.nan
     q = tf.constant(q_np)
@@ -63,6 +64,15 @@ class Test_QEns(unittest.TestCase):
     # entries [i, k, m] with missingness are 0
     self.assertTrue(
       np.all(result_w.numpy()[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] == np.zeros(4)))
+
+    # for rows (i, k, :) with missingness, entries at non-missing points are
+    # proportional to original weights
+    self.assertTrue(
+      np.all(result_w.numpy()[0, 0, 2] == 1.0))
+    self.assertTrue(
+      np.all(result_w.numpy()[0, 1, [0, 2]] == w_np[1, [0, 2]] / np.sum(w_np[1, [0, 2]])))
+    self.assertTrue(
+      np.all(result_w.numpy()[3, 3, [0, 1]] == w_np[3, [0, 1]] / np.sum(w_np[3, [0, 1]])))
 
     # Assert sum of weights across models are all approximately 1
     self.assertTrue(

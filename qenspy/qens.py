@@ -34,7 +34,7 @@ class QEns():
         missing_mask = tf.math.is_nan(q)
         if tf.reduce_any(missing_mask):
             # nonmissing mask has shape (N, K, M), with entries
-            # 1 where q had missing values and 0 elsewhere
+            # 0 where q had missing values and 1 elsewhere
             nonmissing_mask = tf.cast(
                 tf.logical_not(missing_mask),
                 dtype = broadcast_w.dtype)
