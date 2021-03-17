@@ -5,6 +5,32 @@ import tensorflow_probability as tfp
 tfb = tfp.bijectors
 
 class QEns():
+    def fill_missing_and_renormalize(self, q, w):
+        """
+        Generate prediction from a weighted mean quantile forecast ensemble.
+
+        Parameters
+        ----------
+        q: 3D tensor with shape (N, K, M)
+            Component prediction quantiles for observation cases i = 1, ..., N,
+            quantile levels k = 1, ..., K, and models m = 1, ..., M
+        w: 2D tensor with shape (K, M)
+            Component model weights, where `w[m, k]` is the weight given to
+            model m for quantile level k
+
+        Returns
+        -------
+        (q, w): tuple with two 3D tensors with shape (N, K, M)
+            - q is a copy of the argument q with missing values replaced by 0
+            - w is N copies of the argument w with weights w[i,k,m] set to 0
+            at indices where q[i,k,m] is 0, and the weights re-normalized to
+            sum to 1 within each combination of i and k.
+        """
+        # note! handling of missingness and renormalization is not done yet!
+        q_shape = tf.shape(q).numpy()
+        expanded_w = tf.broadcast_to(w, q_shape)
+        return (q, expanded_w)
+
     def unpack_params(self, param_vec, K, M, tau_groups):
         """
         Utility function to convert from a vector of parameters to a dictionary
@@ -47,3 +73,33 @@ class QEns():
         # return as dictionary
         return {'w': w}
 
+
+
+class MeanQEns(QEns):
+    def predict(self, q, w):
+        """
+        Generate prediction from a weighted mean quantile forecast ensemble.
+
+        Parameters
+        ----------
+        q: 3D tensor with shape (N, K, M)
+            Component prediction quantiles for observation cases i = 1, ..., N,
+            quantile levels k = 1, ..., K, and models m = 1, ..., M
+        w: 2D tensor with shape (K, M)
+            Component model weights, where `w[m, k]` is the weight given to
+            model m for quantile level k
+
+        Returns
+        -------
+        ensemble_q: 2D tensor with shape (N, K)
+            Ensemble forecasts for each observation case i = 1, ..., N and
+            quantile level k = 1, ..., K
+        """
+        # TODO: handle missing values in q
+        (q, w) = super().fill_missing_and_renormalize(q, w)
+
+        # calculate weighted mean along the M axis for each combination of N, K
+        ensemble_q = tf.reduce_sum(q * w, axis = 2)
+
+        # return
+        return ensemble_q
