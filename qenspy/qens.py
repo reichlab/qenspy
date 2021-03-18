@@ -108,7 +108,6 @@ class QEns(abc.ABC):
         Sum of pinball loss over all predictions as scalar tensor 
         (sum over all i = 1, …, N and k = 1, …, K)
         """
-        loss = 0
         # broadcast y to shape (N, K)
         y_broadcast = tf.transpose(tf.broadcast_to(y, tf.transpose(q).shape))
         loss = tf.reduce_sum(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
