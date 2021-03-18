@@ -57,5 +57,25 @@ class Test_QEns(unittest.TestCase):
       self.assertTrue(np.all(w[7, :].numpy() == w[i, :].numpy()))
 
 
+  def test_pinball_loss(self):
+    y = np.array([0.1, 0.2, 0.3])
+    q = np.concatenate((
+        np.array([0.2, -0.5, 0.4]).reshape(3,1), 
+        np.array([0.1, 0.7, -0.5]).reshape(3,1)), axis = 1)
+    tau = np.array([0.2, 0.5])
+
+    actual = qens.QEns().pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
+    print(actual)
+    # calculate expected 
+    expected = 0
+    for i in range(q.shape[0]):
+        for k in range(q.shape[1]):
+            if y[i] < q[i,k]:
+                expected += (1 - tau[k]) * (q[i,k] - y[i])
+            else:
+                expected += (0 - tau[k]) * (q[i,k] - y[i])
+
+    print (expected)
+
 if __name__ == '__main__':
   unittest.main()
