@@ -9,7 +9,7 @@ class Test_QEns(unittest.TestCase):
   def test_fill_missing_and_renormalize_none_missing(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.QEns().unpack_params(
+    params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
       K=10,
       M=3,
@@ -18,7 +18,7 @@ class Test_QEns(unittest.TestCase):
     w = params_dict['w']
     q = tf.constant(np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3)))
 
-    (result_q, result_w) = qens.QEns().fill_missing_and_renormalize(q, w)
+    (result_q, result_w) = qens.MeanQEns().fill_missing_and_renormalize(q, w)
 
     # no change to q
     self.assertTrue(np.all(q.numpy() == result_q.numpy()))
@@ -31,7 +31,7 @@ class Test_QEns(unittest.TestCase):
   def test_unpack_params(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.QEns().unpack_params(
+    params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
       K=10,
       M=3,
@@ -64,8 +64,8 @@ class Test_QEns(unittest.TestCase):
         np.array([0.1, 0.7, -0.5]).reshape(3,1)), axis = 1)
     tau = np.array([0.2, 0.5])
 
-    actual = qens.QEns().pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
-    print(actual)
+    actual = qens.MeanQEns().pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
+
     # calculate expected 
     expected = 0
     for i in range(q.shape[0]):
@@ -75,7 +75,7 @@ class Test_QEns(unittest.TestCase):
             else:
                 expected += (0 - tau[k]) * (q[i,k] - y[i])
 
-    print (expected)
+    self.assertAlmostEqual(actual.numpy(),expected,places=2)
 
 if __name__ == '__main__':
   unittest.main()

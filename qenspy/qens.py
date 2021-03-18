@@ -1,10 +1,11 @@
 import numpy as np
+import abc
 
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfb = tfp.bijectors
 
-class QEns():
+class QEns(abc.ABC):
     def fill_missing_and_renormalize(self, q, w):
         """
         Generate prediction from a weighted mean quantile forecast ensemble.
@@ -128,12 +129,32 @@ class QEns():
 
         q = tf.constant(q)
         w_value = tf.constant(w["w"])
-        ensemble_q = MeanQEns().predict(q, w)
+        ensemble_q = predict(q, w)
 
         loss = pinball_loss(y, ensemble_q, tau)
 
         return loss
 
+    @abc.abstractmethod
+    def predict(self, q, w):
+        """
+        Generate prediction from a quantile forecast ensemble.
+
+        Parameters
+        ----------
+        q: 3D tensor with shape (N, K, M)
+            Component prediction quantiles for observation cases i = 1, ..., N,
+            quantile levels k = 1, ..., K, and models m = 1, ..., M
+        w: 2D tensor with shape (K, M)
+            Component model weights, where `w[m, k]` is the weight given to
+            model m for quantile level k
+
+        Returns
+        -------
+        ensemble_q: 2D tensor with shape (N, K)
+            Ensemble forecasts for each observation case i = 1, ..., N and
+            quantile level k = 1, ..., K
+        """
 
 
 
