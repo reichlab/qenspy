@@ -126,7 +126,7 @@ class Test_QEns(unittest.TestCase):
             else:
                 expected += (0 - tau[k]) * (q[i,k] - y[i])
 
-    self.assertAlmostEqual(actual.numpy(),expected,places=2)
+    self.assertAlmostEqual(actual.numpy(),expected, places=7)
 
 if __name__ == '__main__':
   unittest.main()
