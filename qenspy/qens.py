@@ -100,7 +100,7 @@ class QEns(abc.ABC):
             observed values
         q: 2D tensor with shape (N, K)
             forecast values
-        tau: 1D tensor of length K: Each slice `q[..., k]` corresponds 
+        tau: 1D tensor of length K: Each slice `q[:, k, :]` corresponds 
         to predictions at quantile level `tau[k]`
 
         Returns
