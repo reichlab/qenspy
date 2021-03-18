@@ -1,10 +1,11 @@
 import numpy as np
+import abc
 
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfb = tfp.bijectors
 
-class QEns():
+class QEns(abc.ABC):
     def broadcast_w_and_renormalize(self, q, w):
         """
         Broadcast w to the same shape as q, set weights corresponding to missing
@@ -88,6 +89,87 @@ class QEns():
 
         # return as dictionary
         return {'w': w}
+    
+    def pinball_loss(self, y, q, tau):
+        """
+        Calculate pinball loss of predictions from a single model.
+
+        Parameters
+        ----------
+        y: 1D tensor of length N
+            observed values
+        q: 2D tensor with shape (N, K)
+            forecast values
+        tau: 1D tensor of length K: Each slice `q[:, k, :]` corresponds 
+        to predictions at quantile level `tau[k]`
+
+        Returns
+        -------
+        Sum of pinball loss over all predictions as scalar tensor 
+        (sum over all i = 1, …, N and k = 1, …, K)
+        """
+        # broadcast y to shape (N, K)
+        y_broadcast = tf.transpose(tf.broadcast_to(y, tf.transpose(q).shape))
+        loss = tf.reduce_sum(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
+        return loss
+
+    def pinball_loss_objective(self, param_vec, y, q, tau, tau_groups):
+        """
+        Pinball loss objective function for use during parameter estimation:
+        a function of component weights
+
+        Parameters
+        ----------
+        param_vec: 1D tensor of length K*(M-1)
+            parameters vector
+        y: 1D tensor of length N
+            observed values
+        q: 3D tensor or array
+            model forecasts of shape (N, K, M)
+        tau: 1D tensor of quantile levels (probabilities) of length K
+            Each slice `q[..., k,:]` corresponds to predictions at quantile level `tau[k]`
+        tau_groups: 1D numpy array of integers of length K
+            vector defining groups of quantile levels that have shared
+            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
+            indicates that the component weights are shared within the first
+            three, middle three, and last three quantile levels.
+        
+        Returns
+        -------
+        Total pinball loss over all predictions as scalar tensor
+        """
+        K = q.shape[1]
+        M = q.shape[2]
+        w = unpack_params(self, param_vec, K, M, tau_groups)
+
+        q = tf.constant(q)
+        w_value = tf.constant(w["w"])
+        ensemble_q = predict(q, w)
+
+        loss = pinball_loss(y, ensemble_q, tau)
+
+        return loss
+
+    @abc.abstractmethod
+    def predict(self, q, w):
+        """
+        Generate prediction from a quantile forecast ensemble.
+
+        Parameters
+        ----------
+        q: 3D tensor with shape (N, K, M)
+            Component prediction quantiles for observation cases i = 1, ..., N,
+            quantile levels k = 1, ..., K, and models m = 1, ..., M
+        w: 2D tensor with shape (K, M)
+            Component model weights, where `w[m, k]` is the weight given to
+            model m for quantile level k
+
+        Returns
+        -------
+        ensemble_q: 2D tensor with shape (N, K)
+            Ensemble forecasts for each observation case i = 1, ..., N and
+            quantile level k = 1, ..., K
+        """
 
 
 

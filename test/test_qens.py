@@ -9,7 +9,7 @@ class Test_QEns(unittest.TestCase):
   def test_broadcast_w_and_renormalize_none_missing(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.QEns().unpack_params(
+    params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
       K=10,
       M=3,
@@ -18,7 +18,7 @@ class Test_QEns(unittest.TestCase):
     w = params_dict['w']
     q = tf.constant(np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3)))
 
-    result_w = qens.QEns().broadcast_w_and_renormalize(q, w)
+    result_w = qens.MeanQEns().broadcast_w_and_renormalize(q, w)
 
     # 5 copies of the original w
     for i in range(5):
@@ -32,7 +32,7 @@ class Test_QEns(unittest.TestCase):
   def test_broadcast_w_and_renormalize_with_missing(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.QEns().unpack_params(
+    params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
       K=10,
       M=3,
@@ -44,7 +44,7 @@ class Test_QEns(unittest.TestCase):
     q_np[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] = np.nan
     q = tf.constant(q_np)
 
-    result_w = qens.QEns().broadcast_w_and_renormalize(q, w)
+    result_w = qens.MeanQEns().broadcast_w_and_renormalize(q, w)
 
     # entries at indices i with no missingness are copies of the original w
     for i in [1,2,4]:
@@ -82,7 +82,7 @@ class Test_QEns(unittest.TestCase):
   def test_unpack_params(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.QEns().unpack_params(
+    params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
       K=10,
       M=3,
@@ -107,6 +107,26 @@ class Test_QEns(unittest.TestCase):
     for i in [8,9]:
       self.assertTrue(np.all(w[7, :].numpy() == w[i, :].numpy()))
 
+
+  def test_pinball_loss(self):
+    y = np.array([0.1, 0.2, 0.3])
+    q = np.concatenate((
+        np.array([0.2, -0.5, 0.4]).reshape(3,1), 
+        np.array([0.1, 0.7, -0.5]).reshape(3,1)), axis = 1)
+    tau = np.array([0.2, 0.5])
+
+    actual = qens.MeanQEns().pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
+
+    # calculate expected 
+    expected = 0
+    for i in range(q.shape[0]):
+        for k in range(q.shape[1]):
+            if y[i] < q[i,k]:
+                expected += (1 - tau[k]) * (q[i,k] - y[i])
+            else:
+                expected += (0 - tau[k]) * (q[i,k] - y[i])
+
+    self.assertAlmostEqual(actual.numpy(),expected, places=7)
 
 if __name__ == '__main__':
   unittest.main()
