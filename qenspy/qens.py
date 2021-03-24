@@ -140,7 +140,7 @@ class QEns(abc.ABC):
         """
         K = q.shape[1]
         M = q.shape[2]
-        w = unpack_params(self, param_vec, K, M, tau_groups)
+        w = unpack_params(param_vec, K, M, tau_groups)
 
         q = tf.constant(q)
         w_value = tf.constant(w["w"])
@@ -170,7 +170,82 @@ class QEns(abc.ABC):
             Ensemble forecasts for each observation case i = 1, ..., N and
             quantile level k = 1, ..., K
         """
+    
+    def get_param_estimates_vec(self):
+        """
+        Get parameter estimates in vector form 
 
+        Returns
+        ----------
+        param_estimates_vec: 1D tensor of length K*(M-1)
+        """
+        return self.param_estimates_vec
+    
+    def set_param_estimates_vec(self, param_estimates_vec):
+        """
+        Set parameter estimates in vector form 
+
+        Parameters
+        ----------
+        param_estimates_vec: 1D tensor of length K*(M-1)
+        """
+        self.param_estimates_vec = param_vec
+    
+
+    def fit(self, y, q, tau, tau_groups, init_parms_vec, optim_method, num_iter, learning_rate):
+        """
+        Estimate model parameters
+        
+        Parameters
+        ----------
+        y: 1D tensor of length N
+            observed values
+        q: 3D tensor or array
+            model forecasts of shape (N, K, M)
+        tau: 1D tensor of quantile levels (probabilities) of length K
+            Each slice `q[..., k,:]` corresponds to predictions at quantile level `tau[k]`
+        tau_groups: 1D numpy array of integers of length K
+            vector defining groups of quantile levels that have shared
+            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
+            indicates that the component weights are shared within the first
+            three, middle three, and last three quantile levels.
+        init_param_vec: optional 1D tensor of length K*(M-1)
+            optional initial values for the weights during estimation
+        optim_method: string
+            optional method for optimization.  For now, only support "adam" or "sgd".
+        num_iter: integer
+            number of iterations for optimization
+        learning_rate: Tensor or a floating point value. 
+            The learning rate
+        """
+        params_vec_var = tf.Variable(
+            initial_value=init_parms_vec,
+            name='params_vec',
+            dtype=np.float64)
+        
+        # create optimizer
+        if optim_method == "adam":
+            optimizer = tf.optimizers.Adam(learning_rate = learning_rate)
+        elif optim_method == "sgd":
+            optimizer = tf.optimizers.SGD(learning_rate =learning_rate)
+        
+        # initiate loss trace
+        lls_ = np.zeros(num_iter, np.float64)
+        
+        # create a list of trainable variables
+        trainable_variables = [params_vec_var]
+
+        # apply gradient descent with num_iter times
+        for i in range(num_iter):
+            with tf.GradientTape() as tape:
+                loss = pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
+            grads = tape.gradient(loss, trainable_variables)
+            optimizer.apply_gradients(zip(grads, trainable_variables))
+            lls_[i] = loss
+
+        # set parameter estimates
+        set_param_estimates_vec(params_vec_var.numpy())
+        self.loss_trace = lls_
 
 
 class MeanQEns(QEns):
@@ -201,3 +276,39 @@ class MeanQEns(QEns):
 
         # return
         return ensemble_q
+
+class MedianQEns(QEns):
+    def calc_bandwith(self, q, w):
+        """
+        Calculate bandwidth
+
+        Parameters
+        ----------
+        q: 3D tensor with shape (N, K, M)
+            Predictive quantiles from component models where N is the number of 
+            location/forecast date/horizon triples, M is number of models, 
+            and K is number of quantile levels
+        w: 2D tensor with shape (K, M)
+            Model weight. Not required if self.bw_method is “unweighted”
+
+        Returns
+        -------
+        bw: 2D tensor with shape (N, K)
+            bandwidths
+        """
+
+        if self.bw_method == "silverman_unweighted":
+            M = w.get_shape[1]
+            w_unweighted = tf.broadcast_to(tf.constant([1/M]), w.shape)
+            broadcast_w = broadcast_w_and_renormalize(q, w_unweighted)
+            weighted_mean = tf.reduce_sum(tf.math.multiply_no_nan(q, broadcast_w), axis = 2)
+            weighted_sd = tf.sqrt(tf.reduce_sum(tf.math.multiply_no_nan((q-weighted_mean)^2, broadcast_w), axis = 2)/(3-1))
+            bw = 0.9 * weighted_sd * (3^(-0.2))
+        elif self.bw_method == "silverman_weighted":
+            broadcast_w = broadcast_w_and_renormalize(q, w)
+            unweighted_sd = tf.reduce_std(q, axis = 2)
+            bw = 0.9 * unweighted_sd * (3^(-0.2))
+        
+        return bw
+
+
