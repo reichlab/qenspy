@@ -278,7 +278,10 @@ class MeanQEns(QEns):
         return ensemble_q
 
 class MedianQEns(QEns):
-    def calc_bandwith(self, q, w):
+    def __init__(self, bw_method):
+        self.bw_method = bw_method
+
+    def calc_bandwith(self, q, w = None):
         """
         Calculate bandwidth
 
@@ -296,19 +299,28 @@ class MedianQEns(QEns):
         bw: 2D tensor with shape (N, K)
             bandwidths
         """
-
         if self.bw_method == "silverman_unweighted":
-            M = w.get_shape[1]
-            w_unweighted = tf.broadcast_to(tf.constant([1/M]), w.shape)
-            broadcast_w = broadcast_w_and_renormalize(q, w_unweighted)
-            weighted_mean = tf.reduce_sum(tf.math.multiply_no_nan(q, broadcast_w), axis = 2)
-            weighted_sd = tf.sqrt(tf.reduce_sum(tf.math.multiply_no_nan((q-weighted_mean)^2, broadcast_w), axis = 2)/(3-1))
-            bw = 0.9 * weighted_sd * (3^(-0.2))
+            M = q.shape[2]
+            w_unweighted = tf.broadcast_to(tf.constant([1/M], dtype = q.dtype),[q.shape[1], q.shape[2]])
+            broadcast_w = super().broadcast_w_and_renormalize(q, w_unweighted)
+        
         elif self.bw_method == "silverman_weighted":
-            broadcast_w = broadcast_w_and_renormalize(q, w)
-            unweighted_sd = tf.reduce_std(q, axis = 2)
-            bw = 0.9 * unweighted_sd * (3^(-0.2))
+            if w is None:
+                raise ValueError("Please provide w.")
+            M = w.shape[1]
+            broadcast_w = super().broadcast_w_and_renormalize(q, w)
+
+        # calculate weighted mean along the M axis for each combination of N, K but keep extra dims
+        weighted_mean = tf.reduce_sum(tf.math.multiply_no_nan(q, broadcast_w), axis = 2, keepdims=True)
+            
+        squared_diff = tf.square(tf.subtract(q, weighted_mean))
+
+        weighted_sd = tf.sqrt(tf.reduce_sum(tf.math.multiply_no_nan(squared_diff, broadcast_w), axis = 2)/(M))
+            
+        bw = 0.9 * weighted_sd * (3**(-0.2))
         
         return bw
 
+    def predict(self, q, w):
+        return q
 
