@@ -4,6 +4,7 @@ import abc
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfb = tfp.bijectors
+tfd = tfp.distributions
 
 class QEns(abc.ABC):
     def broadcast_w_and_renormalize(self, q, w):
@@ -189,7 +190,7 @@ class QEns(abc.ABC):
         ----------
         param_estimates_vec: 1D tensor of length K*(M-1)
         """
-        self.param_estimates_vec = param_vec
+        self.param_estimates_vec = param_estimates_vec
     
 
     def fit(self, y, q, tau, tau_groups, init_parms_vec, optim_method, num_iter, learning_rate):
@@ -281,7 +282,7 @@ class MedianQEns(QEns):
     def __init__(self, bw_method):
         self.bw_method = bw_method
 
-    def calc_bandwith(self, q, w = None):
+    def calc_bandwidth(self, q, w = None):
         """
         Calculate bandwidth
 
@@ -321,6 +322,54 @@ class MedianQEns(QEns):
         
         return bw
 
+    def weighted_cdf(self, x, q, w):
+        """
+        Calculate weighted KDE cdf
+
+        Parameters
+        ----------
+        x:  3D tensor with shape (N, K, ...)
+            Points at which to evaluate the cdf
+        q: 3D tensor with shape (N, K, M)
+            Predictive quantiles from component models where N is the number of 
+            location/forecast date/horizon triples, M is number of models, 
+            and K is number of quantile levels
+        w: 2D tensor with shape (K, M)
+            Model weight. Not required if self.bw_method is “unweighted”
+
+        Returns
+        -------
+        weighted_cdf: 3D tensor with shape (N, K, ...)
+            weighted_cdf
+        """
+
+        bw = self.calc_bandwidth(q = q, w = w)
+        rectangle_bw = tf.sqrt(12 * (bw ** 2))
+
+        # to handle missing values
+        # (N, K, M)
+        broadcast_w = super().broadcast_w_and_renormalize(q, w)
+
+        #(N, K, ...)
+        weighted_cdf = tf.zeros(shape = x.shape, dtype = x.dtype)
+        M = q.shape[2]
+        for i in range(M):
+            # (N, K, 1)
+            low = tf.expand_dims(tf.subtract(q[:,:,i], rectangle_bw/2), -1)
+            high = tf.expand_dims(tf.add(q[:,:,i], rectangle_bw/2), -1)
+            curr_broadcast_w = tf.expand_dims(broadcast_w[:,:,i],-1)
+            # case1
+            weighted_cdf = tf.where(tf.less(x, low), weighted_cdf, weighted_cdf)
+            # case2
+            weighted_cdf = tf.where(tf.logical_and(tf.less_equal(x, high), \
+                                tf.greater_equal(x, low)), \
+                                tf.add(weighted_cdf, curr_broadcast_w * tf.subtract(x, low) * (1/  tf.expand_dims(rectangle_bw,-1))),\
+                                weighted_cdf)
+            # case3
+            weighted_cdf = tf.where(tf.greater(x, high), tf.add(weighted_cdf, curr_broadcast_w), weighted_cdf)
+
+        return weighted_cdf
+       
     def predict(self, q, w):
         return q
 
