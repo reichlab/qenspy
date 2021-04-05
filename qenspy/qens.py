@@ -141,7 +141,7 @@ class QEns(abc.ABC):
         """
         K = q.shape[1]
         M = q.shape[2]
-        w = unpack_params(param_vec, K, M, tau_groups)
+        w = self.unpack_params(param_vec, K, M, tau_groups)
 
         q = tf.constant(q)
         w_value = tf.constant(w["w"])
@@ -193,7 +193,7 @@ class QEns(abc.ABC):
         self.param_estimates_vec = param_estimates_vec
     
 
-    def fit(self, y, q, tau, tau_groups, init_parms_vec, optim_method, num_iter, learning_rate):
+    def fit(self, y, q, tau, tau_groups, init_param_vec, optim_method, num_iter, learning_rate):
         """
         Estimate model parameters
         
@@ -220,7 +220,7 @@ class QEns(abc.ABC):
             The learning rate
         """
         params_vec_var = tf.Variable(
-            initial_value=init_parms_vec,
+            initial_value=init_param_vec,
             name='params_vec',
             dtype=np.float64)
         
@@ -239,13 +239,13 @@ class QEns(abc.ABC):
         # apply gradient descent with num_iter times
         for i in range(num_iter):
             with tf.GradientTape() as tape:
-                loss = pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
+                loss = self.pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
             grads = tape.gradient(loss, trainable_variables)
             optimizer.apply_gradients(zip(grads, trainable_variables))
             lls_[i] = loss
 
         # set parameter estimates
-        set_param_estimates_vec(params_vec_var.numpy())
+        self.set_param_estimates_vec(params_vec_var.numpy())
         self.loss_trace = lls_
 
 
@@ -416,4 +416,3 @@ class MedianQEns(QEns):
 
         median = (np.float64(0.5) - c_start + m * p_start) / m
         return median
-
