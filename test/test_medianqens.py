@@ -60,7 +60,9 @@ class Test_MedianQEns(unittest.TestCase):
         # 3 is K = # of quantiles
         # 2 is M = # of models
         x = np.linspace(-5 * 3 * 2, 5 * 3 * 2, num = 5 * 3 *2 * 2).reshape((4, 3, 5))
-        actual_weighted_cdf = qens.MedianQEns("silverman_weighted").weighted_cdf(tf.constant(x), tf.constant(q), tf.constant(w))
+        bw = qens.MedianQEns("silverman_weighted").calc_bandwidth(tf.constant(q), tf.constant(w))
+        rectangle_bw = tf.sqrt(12 * (bw ** 2))
+        actual_weighted_cdf = qens.MedianQEns("silverman_weighted").weighted_cdf(tf.constant(x), tf.constant(q), tf.constant(w), rectangle_bw)
         actual_weighted_cdf = actual_weighted_cdf.numpy()
 
 
@@ -91,6 +93,27 @@ class Test_MedianQEns(unittest.TestCase):
             for j in range(expected_weighted_cdf.shape[1]):
                  for k in range(expected_weighted_cdf.shape[2]):
                     self.assertAlmostEqual(expected_weighted_cdf[i,j,k],actual_weighted_cdf[i,j,k], places=7)
+    
+    def test_MedianQEns_predict(self):
+        q = np.linspace(1, 4 * 3 * 2, 4 * 3 * 2).reshape((4, 3, 2))
+        w = np.array(
+        [[0.50, 0.50],
+        [0.50, 0.50],
+        [0.50, 0.50]]
+        )
+
+        prediction = qens.MedianQEns("silverman_unweighted").predict(tf.constant(q), tf.constant(w))
+
+        bw = qens.MedianQEns("silverman_unweighted").calc_bandwidth(tf.constant(q), tf.constant(w))
+        rectangle_bw = tf.sqrt(12 * (bw ** 2))
+        actual_cdf = qens.MedianQEns("silverman_unweighted").weighted_cdf(tf.expand_dims(prediction,-1),tf.constant(q), tf.constant(w), rectangle_bw)
+        actual_cdf = actual_cdf.numpy() 
+         
+        for i in range(actual_cdf.shape[0]):
+            for j in range(actual_cdf.shape[1]):
+                 for k in range(actual_cdf.shape[2]):
+                    self.assertAlmostEqual(actual_cdf[i,j,k],0.5, places=7)
+
         
 
 if __name__ == '__main__':

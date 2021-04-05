@@ -322,7 +322,7 @@ class MedianQEns(QEns):
         
         return bw
 
-    def weighted_cdf(self, x, q, w):
+    def weighted_cdf(self, x, q, w, rectangle_bw):
         """
         Calculate weighted KDE cdf
 
@@ -336,15 +336,14 @@ class MedianQEns(QEns):
             and K is number of quantile levels
         w: 2D tensor with shape (K, M)
             Model weight. Not required if self.bw_method is “unweighted”
+        rectangle_bw: 2D tensor with shape (K, M)
+            Rectangle bandwidth values
 
         Returns
         -------
         weighted_cdf: 3D tensor with shape (N, K, ...)
             weighted_cdf
         """
-
-        bw = self.calc_bandwidth(q = q, w = w)
-        rectangle_bw = tf.sqrt(12 * (bw ** 2))
 
         # to handle missing values
         # (N, K, M)
@@ -371,5 +370,50 @@ class MedianQEns(QEns):
         return weighted_cdf
        
     def predict(self, q, w):
-        return q
+        """
+        Calculate weighted median at different quantile levels
+
+        Parameters
+        ----------
+        q: 3D tensor with shape (N, K, M)
+            Predictive quantiles from component models where N is the number of 
+            location/forecast date/horizon triples, M is number of models, 
+            and K is number of quantile levels
+        w: 2D tensor with shape (K, M)
+            Model weight. Not required if self.bw_method is “unweighted”
+        
+        Returns
+        -------
+        median: 3D tensor with shape (N, K)
+            weighted median
+        """
+
+        bw = self.calc_bandwidth(q = q, w = w)
+        rectangle_bw = tf.sqrt(12 * (bw ** 2))
+
+        low = q - tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
+        high = q + tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
+        # (N, K, 2M)
+        slope_changepoints = tf.sort(tf.concat([low, high], axis = 2))
+
+        # (N, K, 2M)
+        changepoint_cdf_values = self.weighted_cdf(x = slope_changepoints, q = q, w = w, rectangle_bw = rectangle_bw)
+        
+        # the smallest index that has cdf >= 0.5 (N, K)
+        inds = tf.math.argmax(tf.where(changepoint_cdf_values >= np.float64(0.5), np.float64(0.5)-changepoint_cdf_values, np.float64(-1.0)), axis = 2)
+        start_inds = inds - 1
+
+        # change point value (N, K)
+        p = tf.gather_nd(slope_changepoints, tf.expand_dims(inds, -1), batch_dims = 2)
+        p_start = tf.gather_nd(slope_changepoints, tf.expand_dims(start_inds, -1), batch_dims = 2)
+
+        # corresponding cdf value (N, K)
+        c = tf.gather_nd(changepoint_cdf_values, tf.expand_dims(inds, -1), batch_dims = 2)
+        c_start = tf.gather_nd(changepoint_cdf_values, tf.expand_dims(start_inds, -1), batch_dims = 2)
+
+        # slope (N, K)
+        m = tf.subtract(c, c_start) / tf.subtract(p, p_start)
+
+        median = (np.float64(0.5) - c_start + m * p_start) / m
+        return median
 
