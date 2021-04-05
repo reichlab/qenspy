@@ -220,7 +220,7 @@ class QEns(abc.ABC):
             The learning rate
         """
         params_vec_var = tf.Variable(
-            initial_value=init_parms_vec,
+            initial_value=init_param_vec,
             name='params_vec',
             dtype=np.float64)
         
