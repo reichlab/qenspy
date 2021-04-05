@@ -245,7 +245,7 @@ class QEns(abc.ABC):
             lls_[i] = loss
 
         # set parameter estimates
-        set_param_estimates_vec(params_vec_var.numpy())
+        self.set_param_estimates_vec(params_vec_var.numpy())
         self.loss_trace = lls_
 
 
