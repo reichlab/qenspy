@@ -239,7 +239,7 @@ class QEns(abc.ABC):
         # apply gradient descent with num_iter times
         for i in range(num_iter):
             with tf.GradientTape() as tape:
-                loss = pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
+                loss = self.pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
             grads = tape.gradient(loss, trainable_variables)
             optimizer.apply_gradients(zip(grads, trainable_variables))
             lls_[i] = loss
