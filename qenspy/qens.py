@@ -357,7 +357,7 @@ class MedianQEns(QEns):
             low = tf.expand_dims(tf.subtract(q[:,:,i], rectangle_bw/2), -1)
             high = tf.expand_dims(tf.add(q[:,:,i], rectangle_bw/2), -1)
             curr_broadcast_w = tf.expand_dims(broadcast_w[:,:,i],-1)
-            # case1 (no calculate needed): when x is on the left hand side of the rectangular kernel
+            # case1 (no calculation needed): when x is on the left hand side of the rectangular kernel
             # case2: when x is in the middle of the rectangular kernel
             weighted_cdf = tf.where(tf.logical_and(tf.less_equal(x, high), \
                                 tf.greater_equal(x, low)), \
