@@ -193,7 +193,7 @@ class QEns(abc.ABC):
         self.param_estimates_vec = param_estimates_vec
     
 
-    def fit(self, y, q, tau, tau_groups, init_parms_vec, optim_method, num_iter, learning_rate):
+    def fit(self, y, q, tau, tau_groups, init_param_vec, optim_method, num_iter, learning_rate):
         """
         Estimate model parameters
         
@@ -372,4 +372,3 @@ class MedianQEns(QEns):
        
     def predict(self, q, w):
         return q
-
