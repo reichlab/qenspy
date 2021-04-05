@@ -141,7 +141,7 @@ class QEns(abc.ABC):
         """
         K = q.shape[1]
         M = q.shape[2]
-        w = unpack_params(param_vec, K, M, tau_groups)
+        w = self.unpack_params(param_vec, K, M, tau_groups)
 
         q = tf.constant(q)
         w_value = tf.constant(w["w"])
