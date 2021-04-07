@@ -49,7 +49,7 @@ class QEns(abc.ABC):
 
         return broadcast_w
 
-    def unpack_params(self, param_vec, K, M, tau_groups):
+    def unpack_params(self, param_vec, M, tau_groups):
         """
         Utility function to convert from a vector of parameters to a dictionary
         of parameter values.
@@ -58,8 +58,6 @@ class QEns(abc.ABC):
         ----------
         param_vec: 1D tensor of length K*(M-1)
             parameters vector
-        K: integer
-            number of quantile levels
         M: integer
             number of component models
         tau_groups: 1D numpy array of integers of length K
@@ -112,6 +110,7 @@ class QEns(abc.ABC):
         # broadcast y to shape (N, K)
         y_broadcast = tf.transpose(tf.broadcast_to(y, tf.transpose(q).shape))
         loss = tf.reduce_sum(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
+
         return loss
 
     def pinball_loss_objective(self, param_vec, y, q, tau, tau_groups):
@@ -139,15 +138,12 @@ class QEns(abc.ABC):
         -------
         Total pinball loss over all predictions as scalar tensor
         """
-        K = q.shape[1]
         M = q.shape[2]
-        w = self.unpack_params(param_vec, K, M, tau_groups)
+        w = self.unpack_params(param_vec, M, tau_groups)
 
-        q = tf.constant(q)
-        w_value = tf.constant(w["w"])
-        ensemble_q = predict(q, w)
+        ensemble_q = self.predict(q, w)
 
-        loss = pinball_loss(y, ensemble_q, tau)
+        loss = self.pinball_loss(y, ensemble_q, tau)
 
         return loss
 
@@ -193,7 +189,7 @@ class QEns(abc.ABC):
         self.param_estimates_vec = param_estimates_vec
     
 
-    def fit(self, y, q, tau, tau_groups, init_param_vec, optim_method, num_iter, learning_rate):
+    def fit(self, y, q, tau, tau_groups, init_param_vec, optim_method, num_iter, learning_rate, verbose = False):
         """
         Estimate model parameters
         
@@ -216,7 +212,7 @@ class QEns(abc.ABC):
             optional method for optimization.  For now, only support "adam" or "sgd".
         num_iter: integer
             number of iterations for optimization
-        learning_rate: Tensor or a floating point value. 
+        learning_rate: Tensor or a floating point value.
             The learning rate
         """
         params_vec_var = tf.Variable(
@@ -241,6 +237,13 @@ class QEns(abc.ABC):
             with tf.GradientTape() as tape:
                 loss = self.pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
             grads = tape.gradient(loss, trainable_variables)
+            if verbose:
+                print(i)
+                print("loss = ")
+                print(loss)
+                print("grads = ")
+                print(grads)
+            
             optimizer.apply_gradients(zip(grads, trainable_variables))
             lls_[i] = loss
 
@@ -270,13 +273,16 @@ class MeanQEns(QEns):
             quantile level k = 1, ..., K
         """
         # adjust w to handle missing values in q
-        w = super().broadcast_w_and_renormalize(q, w)
+        w = super().broadcast_w_and_renormalize(q, w['w'])
 
         # calculate weighted mean along the M axis for each combination of N, K
-        ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q, w), axis = 2)
+        q_nans_replaced = q
+        q_nans_replaced[np.isnan(q_nans_replaced)] = 0.0
+        ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q_nans_replaced, w), axis = 2)
 
         # return
         return ensemble_q
+
 
 class MedianQEns(QEns):
     def __init__(self, bw_method):
@@ -289,8 +295,8 @@ class MedianQEns(QEns):
         Parameters
         ----------
         q: 3D tensor with shape (N, K, M)
-            Predictive quantiles from component models where N is the number of 
-            location/forecast date/horizon triples, M is number of models, 
+            Predictive quantiles from component models where N is the number of
+            location/forecast date/horizon triples, M is number of models,
             and K is number of quantile levels
         w: 2D tensor with shape (K, M)
             Model weight. Not required if self.bw_method is “unweighted”
@@ -313,12 +319,12 @@ class MedianQEns(QEns):
 
         # calculate weighted mean along the M axis for each combination of N, K but keep extra dims
         weighted_mean = tf.reduce_sum(tf.math.multiply_no_nan(q, broadcast_w), axis = 2, keepdims=True)
-            
+        
         squared_diff = tf.square(tf.subtract(q, weighted_mean))
 
         weighted_sd = tf.sqrt(tf.reduce_sum(tf.math.multiply_no_nan(squared_diff, broadcast_w), axis = 2)/(M))
-            
-        bw = 0.9 * weighted_sd * (3**(-0.2))
+        
+        bw = 0.9 * weighted_sd * (M**(-0.2))
         
         return bw
 
@@ -331,8 +337,8 @@ class MedianQEns(QEns):
         x:  3D tensor with shape (N, K, ...)
             Points at which to evaluate the cdf
         q: 3D tensor with shape (N, K, M)
-            Predictive quantiles from component models where N is the number of 
-            location/forecast date/horizon triples, M is number of models, 
+            Predictive quantiles from component models where N is the number of
+            location/forecast date/horizon triples, M is number of models,
             and K is number of quantile levels
         w: 2D tensor with shape (K, M)
             Model weight. Not required if self.bw_method is “unweighted”
@@ -367,7 +373,7 @@ class MedianQEns(QEns):
             weighted_cdf = tf.where(tf.greater(x, high), tf.add(weighted_cdf, curr_broadcast_w), weighted_cdf)
 
         return weighted_cdf
-       
+    
     def predict(self, q, w):
         """
         Calculate weighted median at different quantile levels
@@ -375,8 +381,8 @@ class MedianQEns(QEns):
         Parameters
         ----------
         q: 3D tensor with shape (N, K, M)
-            Predictive quantiles from component models where N is the number of 
-            location/forecast date/horizon triples, M is number of models, 
+            Predictive quantiles from component models where N is the number of
+            location/forecast date/horizon triples, M is number of models,
             and K is number of quantile levels
         w: 2D tensor with shape (K, M)
             Model weight. Not required if self.bw_method is “unweighted”
