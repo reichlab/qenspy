@@ -12,6 +12,8 @@ class QEns(abc.ABC):
         Broadcast w to the same shape as q, set weights corresponding to missing
         entries of q to 0, and re-normalize so that the weights sum to 1.
 
+        Replace nans in q with 0
+
         Parameters
         ----------
         q: 3D tensor with shape (N, K, M)
