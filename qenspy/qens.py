@@ -7,7 +7,7 @@ tfb = tfp.bijectors
 tfd = tfp.distributions
 
 class QEns(abc.ABC):
-    def broadcast_w_and_renormalize(self, q, w):
+    def handle_missingness(self, q, w):
         """
         Broadcast w to the same shape as q, set weights corresponding to missing
         entries of q to 0, and re-normalize so that the weights sum to 1.
@@ -27,6 +27,8 @@ class QEns(abc.ABC):
             broadcast_w has N copies of the argument w with weights w[i,k,m] set
             to 0 at indices where q[i,k,m] is nan. The weights are then
             re-normalized to sum to 1 within each combination of i and k.
+        q_nans_replaced: 3D tensor with shape (N, K, M)
+            Component prediction quantiles with nans replaced with 0
         """
         # broadcast w to the same shape as q, creating N copies of w
         q_shape = tf.shape(q).numpy()
@@ -46,8 +48,11 @@ class QEns(abc.ABC):
 
             # renormalize weights to sum to 1 along the model axis
             (broadcast_w, _) = tf.linalg.normalize(broadcast_w, ord = 1, axis = 2)
+        
+        # replace nan with 0 in q
+        q_nans_replaced = tf.where(tf.math.is_nan(q), 0., q)
 
-        return broadcast_w
+        return broadcast_w, q_nans_replaced
 
     def unpack_params(self, param_vec, M, tau_groups):
         """
@@ -272,13 +277,11 @@ class MeanQEns(QEns):
             Ensemble forecasts for each observation case i = 1, ..., N and
             quantile level k = 1, ..., K
         """
-        # adjust w to handle missing values in q
-        w = super().broadcast_w_and_renormalize(q, w['w'])
+        # adjust w and q to handle missing values
+        w, q = super().handle_missingness(q, w['w'])
 
         # calculate weighted mean along the M axis for each combination of N, K
-        q_nans_replaced = q
-        q_nans_replaced[np.isnan(q_nans_replaced)] = 0.0
-        ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q_nans_replaced, w), axis = 2)
+        ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q, w), axis = 2)
 
         # return
         return ensemble_q
@@ -309,13 +312,13 @@ class MedianQEns(QEns):
         if self.bw_method == "silverman_unweighted":
             M = q.shape[2]
             w_unweighted = tf.broadcast_to(tf.constant([1/M], dtype = q.dtype),[q.shape[1], q.shape[2]])
-            broadcast_w = super().broadcast_w_and_renormalize(q, w_unweighted)
+            broadcast_w, q = super().handle_missingness(q, w_unweighted)
         
         elif self.bw_method == "silverman_weighted":
             if w is None:
                 raise ValueError("Please provide w.")
             M = w.shape[1]
-            broadcast_w = super().broadcast_w_and_renormalize(q, w)
+            broadcast_w, q = super().handle_missingness(q, w)
 
         # calculate weighted mean along the M axis for each combination of N, K but keep extra dims
         weighted_mean = tf.reduce_sum(tf.math.multiply_no_nan(q, broadcast_w), axis = 2, keepdims=True)
@@ -353,7 +356,7 @@ class MedianQEns(QEns):
 
         # to handle missing values
         # (N, K, M)
-        broadcast_w = super().broadcast_w_and_renormalize(q, w)
+        broadcast_w, q = super().handle_missingness(q, w)
 
         #(N, K, ...)
         weighted_cdf = tf.zeros(shape = x.shape, dtype = x.dtype)
@@ -372,8 +375,6 @@ class MedianQEns(QEns):
             # case3: when x is on the right hand side of the rectangular kernel
             weighted_cdf = tf.where(tf.greater(x, high), tf.add(weighted_cdf, curr_broadcast_w), weighted_cdf)
 
-        return weighted_cdf
-    
     def predict(self, q, w):
         """
         Calculate weighted median at different quantile levels
@@ -396,8 +397,10 @@ class MedianQEns(QEns):
         bw = self.calc_bandwidth(q = q, w = w)
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
 
-        low = q - tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
-        high = q + tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
+        q_nans_replaced = tf.where(tf.math.is_nan(q), 0., q)
+
+        low = q_nans_replaced - tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
+        high = q_nans_replaced + tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
         # (N, K, 2M)
         slope_changepoints = tf.sort(tf.concat([low, high], axis = 2))
 
@@ -405,13 +408,12 @@ class MedianQEns(QEns):
         changepoint_cdf_values = self.weighted_cdf(x = slope_changepoints, q = q, w = w, rectangle_bw = rectangle_bw)
         
         # the smallest index that has cdf >= 0.5 (N, K)
-        inds = tf.math.argmax(tf.where(changepoint_cdf_values >= np.float64(0.5), np.float64(0.5)-changepoint_cdf_values, np.float64(-1.0)), axis = 2)
+        inds = tf.math.argmax(changepoint_cdf_values >= np.float64(0.5),axis = 2)
         start_inds = inds - 1
 
         # change point value (N, K)
         p = tf.gather_nd(slope_changepoints, tf.expand_dims(inds, -1), batch_dims = 2)
         p_start = tf.gather_nd(slope_changepoints, tf.expand_dims(start_inds, -1), batch_dims = 2)
-
         # corresponding cdf value (N, K)
         c = tf.gather_nd(changepoint_cdf_values, tf.expand_dims(inds, -1), batch_dims = 2)
         c_start = tf.gather_nd(changepoint_cdf_values, tf.expand_dims(start_inds, -1), batch_dims = 2)

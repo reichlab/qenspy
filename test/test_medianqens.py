@@ -22,7 +22,7 @@ class Test_MedianQEns(unittest.TestCase):
         unweighted_mean = q[..., 0] * w[:, 0] + q[..., 1] * w[:, 1]
         variance = (((q[..., 0] - unweighted_mean)**2) * w[:, 0]  + ((q[..., 1] - unweighted_mean)**2) * w[:, 1])/2
         unweighted_sd = np.sqrt(variance)
-        expected_unweighted_bw = 0.9 * unweighted_sd * (3**(-0.2))
+        expected_unweighted_bw = 0.9 * unweighted_sd * (2**(-0.2))
 
         for i in range(actual_unweighted_bw.shape[0]):
             for j in range(actual_unweighted_bw.shape[1]):
@@ -41,7 +41,7 @@ class Test_MedianQEns(unittest.TestCase):
         weighted_mean = q[..., 0] * w[:, 0] + q[..., 1] * w[:, 1]
         variance = (((q[..., 0] - weighted_mean)**2) * w[:, 0]  + ((q[..., 1] - weighted_mean)**2) * w[:, 1])/2
         weighted_sd = np.sqrt(variance)
-        expected_weighted_bw = 0.9 * weighted_sd * (3**(-0.2))
+        expected_weighted_bw = 0.9 * weighted_sd * (2**(-0.2))
 
         for i in range(actual_weighted_bw.shape[0]):
             for j in range(actual_weighted_bw.shape[1]):
@@ -73,7 +73,7 @@ class Test_MedianQEns(unittest.TestCase):
     
         bw = qens.MedianQEns("silverman_weighted").calc_bandwidth(q, w)
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
-        broadcast_w = qens.MedianQEns("silverman_weighted").broadcast_w_and_renormalize(q, w)
+        broadcast_w, q = qens.MedianQEns("silverman_weighted").handle_missingness(q, w)
 
         low = q - tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
         high = q + tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
@@ -108,7 +108,7 @@ class Test_MedianQEns(unittest.TestCase):
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
         actual_cdf = qens.MedianQEns("silverman_unweighted").weighted_cdf(tf.expand_dims(prediction,-1),tf.constant(q), tf.constant(w), rectangle_bw)
         actual_cdf = actual_cdf.numpy() 
-         
+
         for i in range(actual_cdf.shape[0]):
             for j in range(actual_cdf.shape[1]):
                  for k in range(actual_cdf.shape[2]):
