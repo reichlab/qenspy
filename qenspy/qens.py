@@ -50,10 +50,9 @@ class QEns(abc.ABC):
 
             # renormalize weights to sum to 1 along the model axis
             (broadcast_w, _) = tf.linalg.normalize(broadcast_w, ord = 1, axis = 2)
-        
-        # replace nan with 0 in q
-        q_nans_replaced = tf.where(tf.math.is_nan(q), 0., q)
 
+        # replace nan with 0 in q
+        q_nans_replaced = tf.where(tf.math.is_nan(q), np.float64(0.0), np.float64(q))
         return broadcast_w, q_nans_replaced
 
     def unpack_params(self, param_vec, M, tau_groups):
@@ -376,7 +375,8 @@ class MedianQEns(QEns):
                                 weighted_cdf)
             # case3: when x is on the right hand side of the rectangular kernel
             weighted_cdf = tf.where(tf.greater(x, high), tf.add(weighted_cdf, curr_broadcast_w), weighted_cdf)
-
+        
+        return weighted_cdf
     def predict(self, q, w):
         """
         Calculate weighted median at different quantile levels
@@ -399,7 +399,7 @@ class MedianQEns(QEns):
         bw = self.calc_bandwidth(q = q, w = w)
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
 
-        q_nans_replaced = tf.where(tf.math.is_nan(q), 0., q)
+        q_nans_replaced = tf.where(tf.math.is_nan(q), np.float64(0.0), np.float64(q))
 
         low = q_nans_replaced - tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
         high = q_nans_replaced + tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
