@@ -222,6 +222,12 @@ class QEns(abc.ABC):
         learning_rate: Tensor or a floating point value.
             The learning rate
         """
+        # convert inputs to float tensors
+        y = tf.convert_to_tensor(y, dtype=tf.float64)
+        q = tf.convert_to_tensor(q, dtype=tf.float64)
+        tau = tf.convert_to_tensor(tau, dtype=tf.float64)
+
+        # declare variable representing parameters to estimate
         params_vec_var = tf.Variable(
             initial_value=init_param_vec,
             name='params_vec',

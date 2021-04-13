@@ -1,3 +1,6 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import numpy as np
 import tensorflow as tf
 import unittest
@@ -129,6 +132,7 @@ class Test_QEns(unittest.TestCase):
                 expected += (1 - tau[k]) * (q[i,k] - y[i])
             else:
                 expected += (0 - tau[k]) * (q[i,k] - y[i])
+    expected = expected / 6.
 
     self.assertAlmostEqual(actual.numpy(),expected, places=7)
 
