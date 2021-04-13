@@ -25,12 +25,12 @@ class QEns(abc.ABC):
 
         Returns
         -------
+        q_nans_replaced: 3D tensor with shape (N, K, M)
+            Component prediction quantiles with nans replaced with 0
         broadcast_w: 3D tensor with shape (N, K, M)
             broadcast_w has N copies of the argument w with weights w[i,k,m] set
             to 0 at indices where q[i,k,m] is nan. The weights are then
             re-normalized to sum to 1 within each combination of i and k.
-        q_nans_replaced: 3D tensor with shape (N, K, M)
-            Component prediction quantiles with nans replaced with 0
         """
         # broadcast w to the same shape as q, creating N copies of w
         q_shape = tf.shape(q).numpy()
@@ -52,8 +52,9 @@ class QEns(abc.ABC):
             (broadcast_w, _) = tf.linalg.normalize(broadcast_w, ord = 1, axis = 2)
 
         # replace nan with 0 in q
-        q_nans_replaced = tf.where(tf.math.is_nan(q), np.float64(0.0), np.float64(q))
-        return broadcast_w, q_nans_replaced
+        q_nans_replaced = tf.where(missing_mask, np.float64(0.0), np.float64(q))
+
+        return q_nans_replaced, broadcast_w
 
     def unpack_params(self, param_vec, M, tau_groups):
         """
@@ -110,12 +111,12 @@ class QEns(abc.ABC):
 
         Returns
         -------
-        Sum of pinball loss over all predictions as scalar tensor 
-        (sum over all i = 1, …, N and k = 1, …, K)
+        Mean pinball loss over all predictions as scalar tensor 
+        (mean over all i = 1, …, N and k = 1, …, K)
         """
         # broadcast y to shape (N, K)
         y_broadcast = tf.transpose(tf.broadcast_to(y, tf.transpose(q).shape))
-        loss = tf.reduce_sum(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
+        loss = tf.reduce_mean(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
 
         return loss
 
@@ -230,7 +231,7 @@ class QEns(abc.ABC):
         if optim_method == "adam":
             optimizer = tf.optimizers.Adam(learning_rate = learning_rate)
         elif optim_method == "sgd":
-            optimizer = tf.optimizers.SGD(learning_rate =learning_rate)
+            optimizer = tf.optimizers.SGD(learning_rate = learning_rate)
         
         # initiate loss trace
         lls_ = np.zeros(num_iter, np.float64)
@@ -243,15 +244,18 @@ class QEns(abc.ABC):
             with tf.GradientTape() as tape:
                 loss = self.pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
             grads = tape.gradient(loss, trainable_variables)
-            if verbose:
-                print(i)
-                print("loss = ")
-                print(loss)
-                print("grads = ")
-                print(grads)
             
             optimizer.apply_gradients(zip(grads, trainable_variables))
             lls_[i] = loss
+
+            if verbose:
+                print(i)
+                print("param estimates vec = ")
+                print(params_vec_var.numpy())
+                print("loss = ")
+                print(loss.numpy())
+                print("grads = ")
+                print(grads)
 
         # set parameter estimates
         self.set_param_estimates_vec(params_vec_var.numpy())
@@ -279,7 +283,7 @@ class MeanQEns(QEns):
             quantile level k = 1, ..., K
         """
         # adjust w and q to handle missing values
-        w, q = super().handle_missingness(q, w['w'])
+        q, w = super().handle_missingness(q, w['w'])
 
         # calculate weighted mean along the M axis for each combination of N, K
         ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q, w), axis = 2)
@@ -313,13 +317,13 @@ class MedianQEns(QEns):
         if self.bw_method == "silverman_unweighted":
             M = q.shape[2]
             w_unweighted = tf.broadcast_to(tf.constant([1/M], dtype = q.dtype),[q.shape[1], q.shape[2]])
-            broadcast_w, q = super().handle_missingness(q, w_unweighted)
+            q, broadcast_w = super().handle_missingness(q, w_unweighted)
         
         elif self.bw_method == "silverman_weighted":
             if w is None:
                 raise ValueError("Please provide w.")
             M = w.shape[1]
-            broadcast_w, q = super().handle_missingness(q, w)
+            q, broadcast_w = super().handle_missingness(q, w)
 
         # calculate weighted mean along the M axis for each combination of N, K but keep extra dims
         weighted_mean = tf.reduce_sum(tf.math.multiply_no_nan(q, broadcast_w), axis = 2, keepdims=True)
@@ -329,6 +333,7 @@ class MedianQEns(QEns):
         weighted_sd = tf.sqrt(tf.reduce_sum(tf.math.multiply_no_nan(squared_diff, broadcast_w), axis = 2)/(M))
         
         bw = 0.9 * weighted_sd * (M**(-0.2))
+        bw = tf.where(bw < 1e-6, np.float64(1e-6), bw)
         
         return bw
 
@@ -354,10 +359,11 @@ class MedianQEns(QEns):
         weighted_cdf: 3D tensor with shape (N, K, ...)
             weighted_cdf
         """
-
+        # print("rectangle bw")
+        # print(rectangle_bw)
         # to handle missing values
         # (N, K, M)
-        broadcast_w, q = super().handle_missingness(q, w)
+        q, broadcast_w = super().handle_missingness(q, w)
 
         #(N, K, ...)
         weighted_cdf = tf.zeros(shape = x.shape, dtype = x.dtype)
@@ -367,6 +373,8 @@ class MedianQEns(QEns):
             low = tf.expand_dims(tf.subtract(q[:,:,i], rectangle_bw/2), -1)
             high = tf.expand_dims(tf.add(q[:,:,i], rectangle_bw/2), -1)
             curr_broadcast_w = tf.expand_dims(broadcast_w[:,:,i],-1)
+            # print("curr_broadcast_w = ")
+            # print(curr_broadcast_w)
             # case1 (no calculation needed): when x is on the left hand side of the rectangular kernel
             # case2: when x is in the middle of the rectangular kernel
             weighted_cdf = tf.where(tf.logical_and(tf.less_equal(x, high), \
@@ -375,8 +383,11 @@ class MedianQEns(QEns):
                                 weighted_cdf)
             # case3: when x is on the right hand side of the rectangular kernel
             weighted_cdf = tf.where(tf.greater(x, high), tf.add(weighted_cdf, curr_broadcast_w), weighted_cdf)
+            # print("i = " + str(i))
+            # print(weighted_cdf[8, 10, :])
         
         return weighted_cdf
+
     def predict(self, q, w):
         """
         Calculate weighted median at different quantile levels
@@ -395,6 +406,8 @@ class MedianQEns(QEns):
         median: 3D tensor with shape (N, K)
             weighted median
         """
+        # extract array of weights from dictionary
+        w = w['w']
 
         bw = self.calc_bandwidth(q = q, w = w)
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
@@ -424,4 +437,16 @@ class MedianQEns(QEns):
         m = tf.subtract(c, c_start) / tf.subtract(p, p_start)
 
         median = (np.float64(0.5) - c_start + m * p_start) / m
+
+        # print("p =")
+        # print(p)
+        # print("p_start =")
+        # print(p_start)
+        # print("c =")
+        # print(c[8, 10])
+        # print("c_start =")
+        # print(c_start)
+        # print("median =")
+        # print(median)
+
         return median

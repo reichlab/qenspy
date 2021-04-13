@@ -17,7 +17,7 @@ class Test_QEns(unittest.TestCase):
     w = params_dict['w']
     q = tf.constant(np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3)))
 
-    result_w, result_q = qens.MeanQEns().handle_missingness(q, w)
+    result_q, result_w = qens.MeanQEns().handle_missingness(q, w)
 
     # 5 copies of the original w
     for i in range(5):
@@ -46,7 +46,7 @@ class Test_QEns(unittest.TestCase):
     q_np[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] = np.nan
     q = tf.constant(q_np)
 
-    result_w, result_q = qens.MeanQEns().handle_missingness(q, w)
+    result_q, result_w = qens.MeanQEns().handle_missingness(q, w)
 
     # entries at indices i with no missingness are copies of the original w
     for i in [1,2,4]:

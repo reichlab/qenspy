@@ -73,7 +73,7 @@ class Test_MedianQEns(unittest.TestCase):
     
         bw = qens.MedianQEns("silverman_weighted").calc_bandwidth(q, w)
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
-        broadcast_w, q = qens.MedianQEns("silverman_weighted").handle_missingness(q, w)
+        q, broadcast_w = qens.MedianQEns("silverman_weighted").handle_missingness(q, w)
 
         low = q - tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
         high = q + tf.reshape(rectangle_bw/2, [rectangle_bw.shape[0], rectangle_bw.shape[1], 1])
@@ -102,7 +102,7 @@ class Test_MedianQEns(unittest.TestCase):
         [0.50, 0.50]]
         )
 
-        prediction = qens.MedianQEns("silverman_unweighted").predict(tf.constant(q), tf.constant(w))
+        prediction = qens.MedianQEns("silverman_unweighted").predict(tf.constant(q), {'w': tf.constant(w)})
 
         bw = qens.MedianQEns("silverman_unweighted").calc_bandwidth(tf.constant(q), tf.constant(w))
         rectangle_bw = tf.sqrt(12 * (bw ** 2))
