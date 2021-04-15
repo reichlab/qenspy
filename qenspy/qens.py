@@ -250,7 +250,7 @@ class QEns(abc.ABC):
             with tf.GradientTape() as tape:
                 loss = self.pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
             grads = tape.gradient(loss, trainable_variables)
-            
+            grads, _ = tf.clip_by_global_norm(grads, 10.0)
             optimizer.apply_gradients(zip(grads, trainable_variables))
             lls_[i] = loss
 
@@ -339,6 +339,7 @@ class MedianQEns(QEns):
         weighted_sd = tf.sqrt(tf.reduce_sum(tf.math.multiply_no_nan(squared_diff, broadcast_w), axis = 2)/(M))
         
         bw = 0.9 * weighted_sd * (M**(-0.2))
+
         bw = tf.where(bw < 1e-6, np.float64(1e-6), bw)
         
         return bw
@@ -429,7 +430,7 @@ class MedianQEns(QEns):
         changepoint_cdf_values = self.weighted_cdf(x = slope_changepoints, q = q, w = w, rectangle_bw = rectangle_bw)
         
         # the smallest index that has cdf >= 0.5 (N, K)
-        inds = tf.math.argmax(changepoint_cdf_values >= np.float64(0.5),axis = 2)
+        inds = tf.math.argmax(changepoint_cdf_values >= np.float64(0.5), axis = 2)
         start_inds = inds - 1
 
         # change point value (N, K)
