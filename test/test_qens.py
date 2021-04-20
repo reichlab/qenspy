@@ -1,3 +1,6 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import numpy as np
 import tensorflow as tf
 import unittest
@@ -6,35 +9,37 @@ from qenspy import qens
 
 
 class Test_QEns(unittest.TestCase):
-  def test_broadcast_w_and_renormalize_none_missing(self):
+  def test_handle_missingness_none_missing(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
     params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
-      K=10,
       M=3,
       tau_groups=tau_groups
     )
     w = params_dict['w']
     q = tf.constant(np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3)))
 
-    result_w = qens.MeanQEns().broadcast_w_and_renormalize(q, w)
+    result_q, result_w = qens.MeanQEns().handle_missingness(q, w)
 
     # 5 copies of the original w
     for i in range(5):
       self.assertTrue(np.all(w.numpy() == result_w.numpy()[i, ...]))
+    
+    # 5 copies of the original q
+    for i in range(5):
+      self.assertTrue(np.all(q.numpy()[i,...] == result_q.numpy()[i, ...]))
 
     # Assert sum of weights across models are all approximately 1
     self.assertTrue(
       np.all(np.abs(tf.math.reduce_sum(result_w, axis = 2).numpy() - np.ones((5, 10))) < 1e-7))
 
 
-  def test_broadcast_w_and_renormalize_with_missing(self):
+  def test_handle_missingness_with_missing(self):
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
     params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
-      K=10,
       M=3,
       tau_groups=tau_groups
     )
@@ -44,7 +49,7 @@ class Test_QEns(unittest.TestCase):
     q_np[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] = np.nan
     q = tf.constant(q_np)
 
-    result_w = qens.MeanQEns().broadcast_w_and_renormalize(q, w)
+    result_q, result_w = qens.MeanQEns().handle_missingness(q, w)
 
     # entries at indices i with no missingness are copies of the original w
     for i in [1,2,4]:
@@ -64,6 +69,9 @@ class Test_QEns(unittest.TestCase):
     # entries [i, k, m] with missingness are 0
     self.assertTrue(
       np.all(result_w.numpy()[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] == np.zeros(4)))
+    
+    self.assertTrue(
+      np.all(result_q.numpy()[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] == np.zeros(4)))
 
     # for rows (i, k, :) with missingness, entries at non-missing points are
     # proportional to original weights
@@ -84,7 +92,6 @@ class Test_QEns(unittest.TestCase):
     param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
     params_dict = qens.MeanQEns().unpack_params(
       param_vec=param_vec,
-      K=10,
       M=3,
       tau_groups=tau_groups
     )
@@ -125,6 +132,7 @@ class Test_QEns(unittest.TestCase):
                 expected += (1 - tau[k]) * (q[i,k] - y[i])
             else:
                 expected += (0 - tau[k]) * (q[i,k] - y[i])
+    expected = expected / 6.
 
     self.assertAlmostEqual(actual.numpy(),expected, places=7)
 

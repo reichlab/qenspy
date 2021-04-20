@@ -1,3 +1,6 @@
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
 import numpy as np
 import tensorflow as tf
 import unittest
@@ -14,7 +17,7 @@ class Test_MeanQEns(unittest.TestCase):
       [0.20, 0.80]]
     ))
 
-    ensemble_q = qens.MeanQEns().predict(q,w).numpy()
+    ensemble_q = qens.MeanQEns().predict(q,{'w': w}).numpy()
 
     q_np = q.numpy()
     w_np = w.numpy()
@@ -37,7 +40,7 @@ class Test_MeanQEns(unittest.TestCase):
     w = tf.constant(w_np)
 
     # actual ensemble prediction
-    ensemble_q = qens.MeanQEns().predict(q,w).numpy()
+    ensemble_q = qens.MeanQEns().predict(q,{'w': w}).numpy()
 
     # ensemble predictions if missingness weren't a problem
     expected_ensemble_q = q[..., 0] * w[:, 0] + q[..., 1] * w[:, 1]

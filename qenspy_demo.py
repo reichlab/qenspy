@@ -11,66 +11,6 @@ import matplotlib.ticker as mtick
 conn = util.authenticate()
 project_name = 'COVID-19 Forecasts'
 
-
-# utility function to query forecast or truth data from Zoltar
-# there is PR in to add this into zoltpy.
-# once that is merged, delete this and call util.query_project
-# inside of query_project_forecasts_and_truth below
-def query_project(conn, project_name, query_type, query):
-    """
-    Submits a request for the execution of a query of either forecasts or truth
-    in a specified Zoltar project.
-    :param conn: a ZoltarConnection
-    :param project_name: name of the Project to query
-    :param query_type: a QueryType enum value indicating the type of query to run
-    :param query: a dict that constrains the queried data. It is the analog of the JSON object documented at
-        https://docs.zoltardata.com/ . Briefly, query is a dict whose keys vary depending on query_type. References
-        to models, units, targets, and timezeros are strings that name the objects, and not IDs. Following are some
-        examples of the three types of queries:
-    Forecasts:
-        {"models": ["60-contact", "CovidIL_100"],
-          "units": ["US"],
-          "targets": ["0 day ahead cum death", "1 day ahead cum death"],
-          "timezeros": ["2020-05-14", "2020-05-09"],
-          "types": ["point", "quantile"]}
-    Truth:
-        {"units": ["US"],
-          "targets": ["0 day ahead cum death", "1 day ahead cum death"],
-          "timezeros": ["2020-05-14", "2020-05-09"]}
-    :return: a pandas data frame of query results. The columns depend on the originating query.
-    """
-    # identify project to query from project_name
-    conn.re_authenticate_if_necessary()
-    projects = conn.projects
-    matching_projects = [project for project in projects if project.name == project_name]
-    if not matching_projects:
-        raise RuntimeError(f"found no project named '{project_name}' in {projects}")
-    
-    project = matching_projects[0]
-    
-    # submit query
-    job = project.submit_query(query_type, query)
-    
-    # poll job until results are available
-    util.busy_poll_job(job)
-    
-    # get results, format is rows of a csv
-    csv_rows = job.download_data()
-    
-    # convert to a pandas data frame
-    if len(csv_rows) == 1:
-      # empty data frame with specified column names
-      result_df = pd.DataFrame(columns = csv_rows[0])
-    else:
-      # concatenate rows into one data frame
-      result_df = pd.concat([
-        pd.DataFrame([csv_rows[i]], columns = csv_rows[0]) \
-          for i in range(1, len(csv_rows))
-      ])
-    
-    return result_df
-
-
 def query_project_forecasts_and_truth(conn, project_name, models, units, targets, timezeros, types):
   """Query forecasts and corresponding observed truth from Zoltar."""
   query = {
@@ -79,7 +19,7 @@ def query_project_forecasts_and_truth(conn, project_name, models, units, targets
     "targets": targets,
     "timezeros": timezeros,
     "types": types}
-  forecasts = query_project(conn, project_name, connection.QueryType.FORECASTS, query) \
+  forecasts = util.query_project(conn, project_name, connection.QueryType.FORECASTS, query) \
     .assign(
       timezero = lambda x: pd.to_datetime(x.timezero),
       forecast_date = lambda x: x.timezero +
@@ -92,7 +32,7 @@ def query_project_forecasts_and_truth(conn, project_name, models, units, targets
     "units": units,
     "targets": targets,
     "timezeros": timezeros}
-  truth = query_project(conn, project_name, connection.QueryType.TRUTH, query) \
+  truth = util.query_project(conn, project_name, connection.QueryType.TRUTH, query) \
     .assign(
       timezero = lambda x: pd.to_datetime(x.timezero),
       forecast_date = lambda x: x.timezero +
@@ -130,7 +70,7 @@ def plot_forecasts(
   models,
   tau):
   """Plot observations and predictions."""
-  fig, ax = plt.subplots(nrows=(len(models) + 1)//2, ncols=2, figsize=(12, 60))
+  fig, ax = plt.subplots(nrows=(len(models) + 1)//2, ncols=2, figsize=(12, 30))
   fig.set_tight_layout(True)
   
   interval_colors = ['#a6bddb', '#74a9cf', '#3690c0', '#0570b0']
@@ -241,3 +181,19 @@ plot_forecasts(
   y = y_test,
   models = models_combined,
   tau = tau)
+
+
+w = np.repeat([[0.1, 0.1, 0.8]],K, axis=0)
+q_mean = qens.MeanQEns().predict(q_test, w=w)
+
+# make a plot
+q_combined = np.concatenate([q_test, q_mean[..., np.newaxis]], axis = 2)
+models_combined = models.copy()
+models_combined.append('Weighted mean ensemble')
+
+plot_forecasts(
+  q = q_combined,
+  y = y_test,
+  models = models_combined,
+  tau = tau)
+
