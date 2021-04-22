@@ -195,8 +195,36 @@ class QEns(abc.ABC):
         """
         self.param_estimates_vec = param_estimates_vec
     
+    def get_tau_groups(self):
+        """
+        Get tau_groups
 
-    def fit(self, y, q, tau, tau_groups, init_param_vec, optim_method, num_iter, learning_rate, verbose = False):
+        Returns
+        ----------
+        tau_groups: 1D numpy array of integers of length K
+            vector defining groups of quantile levels that have shared
+            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
+            indicates that the component weights are shared within the first
+            three, middle three, and last three quantile levels.
+        """
+        return self.tau_groups
+    
+    def set_tau_groups(self, tau_groups):
+        """
+        Set tau_groups
+
+        Parameters
+        ----------
+        tau_groups: 1D numpy array of integers of length K
+            vector defining groups of quantile levels that have shared
+            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
+            indicates that the component weights are shared within the first
+            three, middle three, and last three quantile levels.
+        """
+        self.tau_groups = tau_groups
+    
+
+    def fit(self, y, q, tau, tau_groups, optim_method, num_iter, learning_rate, init_param_vec = None, verbose = False):
         """
         Estimate model parameters
         
@@ -226,6 +254,14 @@ class QEns(abc.ABC):
         y = tf.convert_to_tensor(y, dtype=tf.float64)
         q = tf.convert_to_tensor(q, dtype=tf.float64)
         tau = tf.convert_to_tensor(tau, dtype=tf.float64)
+
+        if init_param_vec == None:
+            M = q.shape[2]
+            # get number of different tau groups
+            groups_unique = np.unique(tau_groups)
+            num_tau_groups = len(groups_unique)
+            # create a 0 vector of length K*(M-1)
+            init_param_vec = tf.constant(np.zeros((M-1)*num_tau_groups))
 
         # declare variable representing parameters to estimate
         params_vec_var = tf.Variable(
@@ -265,11 +301,12 @@ class QEns(abc.ABC):
 
         # set parameter estimates
         self.set_param_estimates_vec(params_vec_var.numpy())
+        self.set_tau_groups(tau_groups)
         self.loss_trace = lls_
 
 
 class MeanQEns(QEns):
-    def predict(self, q, w):
+    def predict(self, q, w = None):
         """
         Generate prediction from a weighted mean quantile forecast ensemble.
 
@@ -288,8 +325,18 @@ class MeanQEns(QEns):
             Ensemble forecasts for each observation case i = 1, ..., N and
             quantile level k = 1, ..., K
         """
+        if w == None:
+            # load weights from object
+            w = self.get_param_estimates_vec()
+            tau_groups = self.get_tau_groups()
+            M = q.shape[2]
+            w = super().unpack_params(w, M, tau_groups)
+       
+        # extract array of weights from dictionary
+        w = w['w']
+
         # adjust w and q to handle missing values
-        q, w = super().handle_missingness(q, w['w'])
+        q, w = super().handle_missingness(q, w)
 
         # calculate weighted mean along the M axis for each combination of N, K
         ensemble_q = tf.reduce_sum(tf.math.multiply_no_nan(q, w), axis = 2)
@@ -395,7 +442,7 @@ class MedianQEns(QEns):
         
         return weighted_cdf
 
-    def predict(self, q, w):
+    def predict(self, q, w = None):
         """
         Calculate weighted median at different quantile levels
 
@@ -413,6 +460,14 @@ class MedianQEns(QEns):
         median: 3D tensor with shape (N, K)
             weighted median
         """
+
+        if w == None:
+            # load weights from object
+            w = self.get_param_estimates_vec()
+            tau_groups = self.get_tau_groups()
+            M = q.shape[2]
+            w = super().unpack_params(w, M, tau_groups)
+       
         # extract array of weights from dictionary
         w = w['w']
 
