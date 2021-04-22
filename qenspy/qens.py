@@ -114,8 +114,11 @@ class QEns(abc.ABC):
         Mean pinball loss over all predictions as scalar tensor 
         (mean over all i = 1, …, N and k = 1, …, K)
         """
+    
+        # add an extra dimension to y --> (N,1)
+        y_broadcast = tf.expand_dims(y, -1)
         # broadcast y to shape (N, K)
-        y_broadcast = tf.transpose(tf.broadcast_to(y, tf.transpose(q).shape))
+        y_broadcast = tf.broadcast_to(y_broadcast, q.shape)
         loss = tf.reduce_mean(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
 
         return loss
