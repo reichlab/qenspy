@@ -151,14 +151,14 @@ class QEns(abc.ABC):
         M = q.shape[2]
         w = self.unpack_params(param_vec, M, tau_groups)
 
-        ensemble_q = self.predict(q, q_train = True, w = w)
+        ensemble_q = self.predict(q = q, train_q = True, w = w)
 
         loss = self.pinball_loss(y, ensemble_q, tau)
 
         return loss
 
     @abc.abstractmethod
-    def predict(self, q, w):
+    def predict(self, q, train_q, w):
         """
         Generate prediction from a quantile forecast ensemble.
 
@@ -167,6 +167,9 @@ class QEns(abc.ABC):
         q: 3D tensor with shape (N, K, M)
             Component prediction quantiles for observation cases i = 1, ..., N,
             quantile levels k = 1, ..., K, and models m = 1, ..., M
+        train_q: boolean
+            Indicator for calculating bandwidth during training or not
+            It is only used in MedianQens.
         w: 2D tensor with shape (K, M)
             Component model weights, where `w[m, k]` is the weight given to
             model m for quantile level k
@@ -287,7 +290,7 @@ class QEns(abc.ABC):
         # apply gradient descent with num_iter times
         for i in range(num_iter):
             with tf.GradientTape() as tape:
-                loss = self.pinball_loss_objective(params_vec_var, y, q, tau, tau_groups)
+                loss = self.pinball_loss_objective(param_vec = params_vec_var, y = y, q = q, tau = tau, tau_groups = tau_groups)
             grads = tape.gradient(loss, trainable_variables)
             grads, _ = tf.clip_by_global_norm(grads, 10.0)
             optimizer.apply_gradients(zip(grads, trainable_variables))
@@ -309,7 +312,7 @@ class QEns(abc.ABC):
 
 
 class MeanQEns(QEns):
-    def predict(self, q, w = None):
+    def predict(self, q, train_q = False, w = None):
         """
         Generate prediction from a weighted mean quantile forecast ensemble.
 
@@ -318,6 +321,9 @@ class MeanQEns(QEns):
         q: 3D tensor with shape (N, K, M)
             Component prediction quantiles for observation cases i = 1, ..., N,
             quantile levels k = 1, ..., K, and models m = 1, ..., M
+        train_q: boolean
+            Indicator for calculating bandwidth during training or not
+            It is only used in MedianQens.
         w: 2D tensor with shape (K, M)
             Component model weights, where `w[m, k]` is the weight given to
             model m for quantile level k
@@ -349,7 +355,10 @@ class MeanQEns(QEns):
 
 
 class MedianQEns(QEns):
-    def calc_kde_rectangle_width(self, q, train_q, w = None):
+    def __init__(self, rectangle_bw = None):
+        self.rectangle_bw = rectangle_bw
+
+    def calc_kde_rectangle_width(self, q, train_q):
         """
         Calculate kde rectangle width
 
@@ -361,17 +370,14 @@ class MedianQEns(QEns):
             and K is number of quantile levels
         train_q: boolean
             Indicator for calculating bandwidth during training or not
-        w: 2D tensor with shape (K, M)   !!!!DOES NOT NEED THIS 
-            Model weight. Not required if self.bw_method is “unweighted”
-
         Returns
         -------
         rectangle_bw: 3D tensor with shape (N, K, M)
             bandwidths
         """
-    
-
-        if not train_q:
+        if train_q and self.rectangle_bw != None:
+            return self.rectangle_bw
+        else:
             # sort the third axis of q
             sorted_indx = tf.argsort(q, axis = -1)
             q_sorted = tf.gather(q, sorted_indx, batch_dims = 2)
@@ -384,12 +390,13 @@ class MedianQEns(QEns):
                  axis = -1)
             # calculate shortest distance
             min_diff = tf.minimum(q_diff[:,:,1:], q_diff[:, :, :-1])
+            # replace nans and any value smaller than 1 with 1
+            min_diff = tf.where(tf.logical_or(min_diff < 1, tf.math.is_nan(min_diff)), np.float64(1.0), min_diff)
             # rearrange distance 
             unsorted_indx = np.argsort(sorted_indx, axis = -1)
             bw = tf.gather(min_diff, unsorted_indx, batch_dims = 2)
-            self.rectangle_bw = tf.sqrt(12 * (bw ** 2))
-        
-        return self.rectangle_bw
+            self.rectangle_bw = bw *2
+            return self.rectangle_bw
 
     def weighted_cdf(self, x, q, w, rectangle_bw):
         """
@@ -418,7 +425,6 @@ class MedianQEns(QEns):
         # to handle missing values
         # (N, K, M)
         q, broadcast_w = super().handle_missingness(q, w)
-
         #(N, K, ...)
         weighted_cdf = tf.zeros(shape = x.shape, dtype = x.dtype)
         M = q.shape[2]
@@ -451,7 +457,7 @@ class MedianQEns(QEns):
             Predictive quantiles from component models where N is the number of
             location/forecast date/horizon triples, M is number of models,
             and K is number of quantile levels
-        q_train: boolean
+        train_q: boolean
             Indicator for calculating bandwidth during training or not
         w: 2D tensor with shape (K, M)
             Model weight. Not required if self.bw_method is “unweighted”
@@ -472,18 +478,19 @@ class MedianQEns(QEns):
         # extract array of weights from dictionary
         w = w['w']
 
-        rectangle_bw = self.calc_kde_rectangle_width(q = q, train_q = train_q, w = w)
+        rectangle_bw = self.calc_kde_rectangle_width(q = q, train_q = train_q)
 
         q_nans_replaced = tf.where(tf.math.is_nan(q), np.float64(0.0), np.float64(q))
 
         low = q_nans_replaced - rectangle_bw/2
         high = q_nans_replaced + rectangle_bw/2
+        
         # (N, K, 2M)
         slope_changepoints = tf.sort(tf.concat([low, high], axis = 2))
 
         # (N, K, 2M)
         changepoint_cdf_values = self.weighted_cdf(x = slope_changepoints, q = q, w = w, rectangle_bw = rectangle_bw)
-        
+
         # the smallest index that has cdf >= 0.5 (N, K)
         inds = tf.math.argmax(changepoint_cdf_values >= np.float64(0.5), axis = 2)
         start_inds = inds - 1
