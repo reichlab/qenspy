@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import abc
 
@@ -230,7 +232,18 @@ class QEns(abc.ABC):
         self.tau_groups = tau_groups
     
 
-    def fit(self, y, q, tau, tau_groups, optim_method, num_iter, learning_rate, init_param_vec = None, verbose = False):
+    def fit(self,
+            y,
+            q,
+            tau,
+            tau_groups,
+            optim_method,
+            num_iter,
+            learning_rate,
+            init_param_vec = None,
+            verbose = False,
+            save_frequency = None,
+            save_path = None):
         """
         Estimate model parameters
         
@@ -261,6 +274,9 @@ class QEns(abc.ABC):
         q = tf.convert_to_tensor(q, dtype=tf.float64)
         tau = tf.convert_to_tensor(tau, dtype=tf.float64)
 
+        if save_frequency == None:
+            save_frequency = num_iter + 1
+
         if init_param_vec == None:
             M = q.shape[2]
             # get number of different tau groups
@@ -290,7 +306,12 @@ class QEns(abc.ABC):
         # apply gradient descent with num_iter times
         for i in range(num_iter):
             with tf.GradientTape() as tape:
-                loss = self.pinball_loss_objective(param_vec = params_vec_var, y = y, q = q, tau = tau, tau_groups = tau_groups)
+                loss = self.pinball_loss_objective(
+                    param_vec = params_vec_var,
+                    y = y,
+                    q = q,
+                    tau = tau,
+                    tau_groups = tau_groups)
             grads = tape.gradient(loss, trainable_variables)
             grads, _ = tf.clip_by_global_norm(grads, 10.0)
             optimizer.apply_gradients(zip(grads, trainable_variables))
@@ -304,6 +325,15 @@ class QEns(abc.ABC):
                 print(loss.numpy())
                 print("grads = ")
                 print(grads)
+            
+            if (i + 1) % save_frequency == 0:
+                # save parameter estimates and loss trace
+                params_to_save = {
+                    'param_estimates_vec': params_vec_var.numpy(),
+                    'loss_trace': lls_
+                }
+    
+                pickle.dump(params_to_save, open(str(save_path), "wb"))
 
         # set parameter estimates
         self.set_param_estimates_vec(params_vec_var.numpy())
@@ -425,6 +455,7 @@ class MedianQEns(QEns):
         # to handle missing values
         # (N, K, M)
         q, broadcast_w = super().handle_missingness(q, w)
+
         #(N, K, ...)
         weighted_cdf = tf.zeros(shape = x.shape, dtype = x.dtype)
         M = q.shape[2]
@@ -437,9 +468,10 @@ class MedianQEns(QEns):
             # print(curr_broadcast_w)
             # case1 (no calculation needed): when x is on the left hand side of the rectangular kernel
             # case2: when x is in the middle of the rectangular kernel
-            weighted_cdf = tf.where(tf.logical_and(tf.less_equal(x, high), tf.greater_equal(x, low)), \
-                                tf.add(weighted_cdf, curr_broadcast_w * tf.subtract(x, low) * (1/ tf.expand_dims(rectangle_bw[:, :, i],-1))),\
-                                weighted_cdf)
+            weighted_cdf = tf.where(
+                tf.logical_and(tf.less_equal(x, high), tf.greater_equal(x, low)), \
+                tf.add(weighted_cdf, curr_broadcast_w * tf.subtract(x, low) * (1/ tf.expand_dims(rectangle_bw[:, :, i],-1))),\
+                weighted_cdf)
             # case3: when x is on the right hand side of the rectangular kernel
             weighted_cdf = tf.where(tf.greater(x, high), tf.add(weighted_cdf, curr_broadcast_w), weighted_cdf)
             # print("i = " + str(i))
@@ -490,7 +522,7 @@ class MedianQEns(QEns):
 
         # (N, K, 2M)
         changepoint_cdf_values = self.weighted_cdf(x = slope_changepoints, q = q, w = w, rectangle_bw = rectangle_bw)
-
+        
         # the smallest index that has cdf >= 0.5 (N, K)
         inds = tf.math.argmax(changepoint_cdf_values >= np.float64(0.5), axis = 2)
         start_inds = inds - 1
