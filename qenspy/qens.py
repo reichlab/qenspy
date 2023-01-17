@@ -22,19 +22,26 @@ class QEns(abc.ABC):
         return model_df[tau_lvls].values[..., np.newaxis]
     
     
-    def df_to_array(self, q_df, y_df, model_cols, task_cols, tau_col,
+    def df_to_array(self, q_df, y_df=None,
+                    model_cols=['model'],
+                    task_cols=None,
+                    tau_col='quantile',
                     value_col='value'):
         """
         Convert predictive quantiles from a tidy data frame to a 3d array.
 
         Parameters
         ----------
-        df: a pandas data frame with predictive quantiles from component models.
+        q_df: a pandas dataframe with predictive quantiles from component models
             It should contain:
             - one or more columns identifying the model
             - one or more columns identifying the prediction task
             - a column identifying the quantile level
             - a column identifying the predictive value
+        y_df: an optional pandas dataframe with observed values
+            It should contain:
+            - one or more columns identifying the prediction task
+            - a column identifying the observed value
         model_cols: list of character strings naming columns that identify the model
         task_cols: list of character strings naming columns that identify a
             prediction task
