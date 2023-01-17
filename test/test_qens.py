@@ -7,20 +7,19 @@ import unittest
 
 from qenspy import qens
 
+import tensorflow_probability as tfp
+tfb = tfp.bijectors
 
 class Test_QEns(unittest.TestCase):
   def test_handle_missingness_none_missing(self):
+    tau = np.linspace(0.1, 0.9, 10)
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
-    param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.MeanQEns().unpack_params(
-      param_vec=param_vec,
-      M=3,
-      tau_groups=tau_groups
-    )
-    w = params_dict['w']
+    param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float32")
+    qe = qens.MeanQEns(M = 3, tau = tau, tau_grps = tau_groups)
+    w = qe.w
     q = tf.constant(np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3)))
 
-    result_q, result_w = qens.MeanQEns().handle_missingness(q, w)
+    result_q, result_w = qe.handle_missingness(q, w)
 
     # 5 copies of the original w
     for i in range(5):
@@ -36,20 +35,17 @@ class Test_QEns(unittest.TestCase):
 
 
   def test_handle_missingness_with_missing(self):
+    tau = np.linspace(0.1, 0.9, 10)
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
-    param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.MeanQEns().unpack_params(
-      param_vec=param_vec,
-      M=3,
-      tau_groups=tau_groups
-    )
-    w = params_dict['w']
+    param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float32")
+    qe = qens.MeanQEns(M = 3, tau = tau, tau_grps = tau_groups)
+    w = qe.w
     w_np = w.numpy()
     q_np = np.linspace(1, 5 * 10 * 3, 5 * 10 * 3).reshape((5, 10, 3))
     q_np[[0, 0, 0, 3], [0, 0, 1, 3], [0, 1, 1, 2]] = np.nan
     q = tf.constant(q_np)
 
-    result_q, result_w = qens.MeanQEns().handle_missingness(q, w)
+    result_q, result_w = qe.handle_missingness(q, w)
 
     # entries at indices i with no missingness are copies of the original w
     for i in [1,2,4]:
@@ -87,15 +83,16 @@ class Test_QEns(unittest.TestCase):
       np.all(np.abs(tf.math.reduce_sum(result_w, axis = 2).numpy() - np.ones((5, 10))) < 1e-7))
 
 
-  def test_unpack_params(self):
+  def test_w(self):
+    tau = np.linspace(0.1, 0.9, 10)
     tau_groups = [0, 0, 0, 1, 1, 1, 1, 2, 2, 2]
-    param_vec = tf.constant(np.log([2,1,3,2,4,3]), dtype = "float64")
-    params_dict = qens.MeanQEns().unpack_params(
-      param_vec=param_vec,
-      M=3,
-      tau_groups=tau_groups
-    )
-    w = params_dict['w']
+    param_vec = tf.constant(np.log([[2,1],[3,2],[3,4]]), dtype = "float32")
+
+    softmax_bijector = tfb.SoftmaxCentered()
+
+    qe = qens.MeanQEns(M = 3, tau = tau, tau_grps = tau_groups)
+    junk = qe.parameters['w_tau_grps'].assign(softmax_bijector.forward(param_vec))
+    w = qe.w
 
     # Assert w has shape (K, M) == (10, 3)
     self.assertTrue(np.all(tf.shape(w).numpy() == np.array([10, 3])))
@@ -118,13 +115,16 @@ class Test_QEns(unittest.TestCase):
   def test_pinball_loss(self):
     y = np.array([0.1, 0.2, 0.3])
     q = np.concatenate((
-        np.array([0.2, -0.5, 0.4]).reshape(3,1), 
+        np.array([0.2, -0.5, 0.4]).reshape(3,1),
         np.array([0.1, 0.7, -0.5]).reshape(3,1)), axis = 1)
     tau = np.array([0.2, 0.5])
+    tau_groups = [0, 1]
 
-    actual = qens.MeanQEns().pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
+    qe = qens.MeanQEns(M = 3, tau = tau, tau_grps = tau_groups)
 
-    # calculate expected 
+    actual = qe.pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
+
+    # calculate expected
     expected = 0
     for i in range(q.shape[0]):
         for k in range(q.shape[1]):
