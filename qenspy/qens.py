@@ -39,7 +39,7 @@ class QEns(abc.ABC):
         """
         self.M = M
         self.K = len(tau_grps)
-        self.tau = tau
+        self.tau = tf.convert_to_tensor(tau, dtype=tf.float32)
         self.tau_grps = tau_grps
         
         # get number of different tau groups
@@ -78,6 +78,7 @@ class QEns(abc.ABC):
         
         # initialize loss trace
         self.loss_trace = np.zeros((0,), np.float32)
+    
     
     def model_q_ordered(model_df, tau_lvls):
         """
@@ -205,7 +206,7 @@ class QEns(abc.ABC):
         return tf.gather(self.parameters['w_tau_grps'], self.tau_grps_idx)
     
     
-    def pinball_loss(self, y, q, tau):
+    def pinball_loss(self, y, q):
         """
         Calculate pinball loss of predictions from a single model.
 
@@ -215,8 +216,6 @@ class QEns(abc.ABC):
             observed values
         q: 2D tensor with shape (N, K)
             forecast values
-        tau: 1D tensor of length K: Each slice `q[:, k, :]` corresponds 
-        to predictions at quantile level `tau[k]`
 
         Returns
         -------
@@ -228,30 +227,21 @@ class QEns(abc.ABC):
         y_broadcast = tf.expand_dims(y, -1)
         # broadcast y to shape (N, K)
         y_broadcast = tf.broadcast_to(y_broadcast, q.shape)
-        loss = tf.reduce_mean(tf.maximum(tau*(y_broadcast - q), (tau-1)*(y_broadcast-q)))
+        loss = tf.reduce_mean(tf.maximum(self.tau*(y_broadcast - q), (self.tau-1)*(y_broadcast-q)))
 
         return loss
 
-    def pinball_loss_objective(self, param_vec, y, q, tau, tau_grps):
+    def pinball_loss_objective(self, y, q):
         """
         Pinball loss objective function for use during parameter estimation:
         a function of component weights
 
         Parameters
         ----------
-        param_vec: 1D tensor of length K*(M-1)
-            parameters vector
         y: 1D tensor of length N
             observed values
         q: 3D tensor or array
             model forecasts of shape (N, K, M)
-        tau: 1D tensor of quantile levels (probabilities) of length K
-            Each slice `q[..., k,:]` corresponds to predictions at quantile level `tau[k]`
-        tau_grps: 1D numpy array of integers of length K
-            vector defining groups of quantile levels that have shared
-            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
-            indicates that the component weights are shared within the first
-            three, middle three, and last three quantile levels.
         
         Returns
         -------
@@ -259,7 +249,7 @@ class QEns(abc.ABC):
         """
         return self.pinball_loss(y=y, q=self.predict(q = q))
     
-
+    
     @abc.abstractmethod
     def predict(self, q):
         """
@@ -278,41 +268,13 @@ class QEns(abc.ABC):
             quantile level k = 1, ..., K
         """
     
-    def get_tau_grps(self):
-        """
-        Get tau_grps
-
-        Returns
-        ----------
-        tau_grps: 1D numpy array of integers of length K
-            vector defining groups of quantile levels that have shared
-            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
-            indicates that the component weights are shared within the first
-            three, middle three, and last three quantile levels.
-        """
-        return self._tau_grps
     
-    def set_tau_grps(self, tau_grps):
-        """
-        Set tau_grps
-
-        Parameters
-        ----------
-        tau_grps: 1D numpy array of integers of length K
-            vector defining groups of quantile levels that have shared
-            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
-            indicates that the component weights are shared within the first
-            three, middle three, and last three quantile levels.
-        """
-        self._tau_grps = tau_grps
-    
-
     def fit(self,
             y,
             q,
-            optim_method,
-            num_iter,
-            learning_rate,
+            optim_method = "adam",
+            num_iter = 1000,
+            learning_rate = 0.1,
             verbose = False,
             save_frequency = None,
             save_path = None):
@@ -327,13 +289,6 @@ class QEns(abc.ABC):
         q: 3D tensor or array with predictive quantiles
             Tensor or array with shape (N, K, M), where entry (i, k, m) is a
             predictive quantile at level tau_k for prediction task i from model m
-        tau: 1D tensor of quantile levels (probabilities) of length K
-            Each slice `q[..., k,:]` corresponds to predictions at quantile level `tau[k]`
-        tau_grps: 1D numpy array of integers of length K
-            vector defining groups of quantile levels that have shared
-            parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
-            indicates that the component weights are shared within the first
-            three, middle three, and last three quantile levels.
         optim_method: string
             optional method for optimization.  For now, only support "adam" or "sgd".
         num_iter: integer
@@ -344,16 +299,22 @@ class QEns(abc.ABC):
         # convert inputs to float tensors
         y = tf.convert_to_tensor(y, dtype=tf.float32)
         q = tf.convert_to_tensor(q, dtype=tf.float32)
-        tau = tf.convert_to_tensor(tau, dtype=tf.float32)
+        
+        # TODO: validate shapes of y and q
+        
+        # validate num_iter and save_frequency
+        if not isinstance(num_iter, int):
+            raise ValueError('num_iter must be an int')
         
         if save_frequency == None:
             save_frequency = num_iter + 1
         
-        # declare variable representing parameters to estimate
-        params_vec_var = tf.Variable(
-            initial_value=init_param_vec,
-            name='params_vec',
-            dtype=np.float32)
+        if not isinstance(save_frequency, int):
+            raise ValueError('save_frequency must be None or an int')
+        
+        # trainable variables representing parameters to estimate
+        trainable_variables = [self.parameters[v].trainable_variables[0] \
+            for v in self.parameters.keys()]
         
         # create optimizer
         if optim_method == "adam":
@@ -362,11 +323,8 @@ class QEns(abc.ABC):
             optimizer = tf.optimizers.SGD(learning_rate = learning_rate)
         
         # initiate loss trace
-        lls_ = np.zeros(num_iter, np.float32)
+        loss_tr = np.zeros(num_iter, np.float32)
         
-        # create a list of trainable variables
-        trainable_variables = [params_vec_var]
-
         # apply gradient descent with num_iter times
         for i in range(num_iter):
             with tf.GradientTape() as tape:
@@ -376,12 +334,12 @@ class QEns(abc.ABC):
             grads = tape.gradient(loss, trainable_variables)
             grads, _ = tf.clip_by_global_norm(grads, 10.0)
             optimizer.apply_gradients(zip(grads, trainable_variables))
-            lls_[i] = loss
+            loss_tr[i] = loss
 
             if verbose:
                 print(i)
-                print("param estimates vec = ")
-                print(params_vec_var.numpy())
+                print("w_tau_grps = ")
+                print(self.parameters['w_tau_grps'].numpy())
                 print("loss = ")
                 print(loss.numpy())
                 print("grads = ")
@@ -389,17 +347,14 @@ class QEns(abc.ABC):
             
             if (i + 1) % save_frequency == 0:
                 # save parameter estimates and loss trace
-                params_to_save = {
-                    'param_estimates_vec': params_vec_var.numpy(),
-                    'loss_trace': lls_
-                }
-    
-                pickle.dump(params_to_save, open(str(save_path), "wb"))
-
-        # set parameter estimates
-        self.set_param_estimates_vec(params_vec_var.numpy())
-        self.set_tau_grps(tau_grps)
-        self.loss_trace = lls_
+                to_save = self.parameters.copy().update({
+                    'loss_trace': loss_tr
+                })
+                
+                pickle.dump(to_save, open(str(save_path), "wb"))
+        
+        # update loss trace
+        self.loss_trace = np.concatenate([self.loss_trace, loss_tr])
 
 
 class MeanQEns(QEns):
@@ -537,10 +492,6 @@ class MedianQEns(QEns):
             Predictive quantiles from component models where N is the number of
             location/forecast date/horizon triples, M is number of models,
             and K is number of quantile levels
-        train_q: boolean
-            Indicator for calculating bandwidth during training or not
-        w: 2D tensor with shape (K, M)
-            Model weight. Not required if self.bw_method is “unweighted”
         
         Returns
         -------
