@@ -13,7 +13,7 @@ class QEns(abc.ABC):
     Base class for a quantile ensemble with estimation by optimizing quantile
     score.
     """
-    def __init__(self, M, tau, tau_grps, init_method = "xavier") -> None:
+    def __init__(self, M, tau, tau_groups, init_method = "xavier") -> None:
         """
         Initialize an RCLP model
         
@@ -25,7 +25,7 @@ class QEns(abc.ABC):
             For example, `tau = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]`
             means that the model will work with predictive quantiles at those
             nine probability levels.
-        tau_grps: 1D numpy array of integers of length K
+        tau_groups: 1D numpy array of integers of length K
             vector defining groups of quantile levels that have shared
             parameter values.  For example, [0, 0, 0, 1, 1, 1, 2, 2, 2]
             indicates that the component weights are shared within the first
@@ -38,16 +38,16 @@ class QEns(abc.ABC):
         None
         """
         self.M = M
-        self.K = len(tau_grps)
+        self.K = len(tau_groups)
         self.tau = tf.convert_to_tensor(tau, dtype=tf.float32)
-        self.tau_grps = tau_grps
+        self.tau_groups = tau_groups
         
         # get number of different tau groups
-        tau_grps_unique, tau_grps_idx = np.unique(tau_grps,
+        tau_groups_unique, tau_groups_idx = np.unique(tau_groups,
                                                       return_inverse=True)
-        num_tau_grps = len(tau_grps_unique)
-        self.num_tau_grps = num_tau_grps
-        self.tau_grps_idx = tau_grps_idx
+        num_tau_groups = len(tau_groups_unique)
+        self.num_tau_groups = num_tau_groups
+        self.tau_groups_idx = tau_groups_idx
         
         # bijector to map to simplex of model probabilities
         softmax_bijector = tfb.SoftmaxCentered()
@@ -58,21 +58,21 @@ class QEns(abc.ABC):
             w_xavier_hw = 1.0 / tf.math.sqrt(tf.constant(M-1, dtype=tf.float32))
             def init_w():
                 return softmax_bijector.forward(
-                    tf.random.uniform((num_tau_grps, M - 1), -w_xavier_hw, w_xavier_hw, dtype=tf.float32))
+                    tf.random.uniform((num_tau_groups, M - 1), -w_xavier_hw, w_xavier_hw, dtype=tf.float32))
         elif init_method == "zero":
             # zero initialization for w; equal weights
             def init_w():
-                return softmax_bijector.forward(tf.zeros((num_tau_grps, M - 1), dtype=tf.float32))
+                return softmax_bijector.forward(tf.zeros((num_tau_groups, M - 1), dtype=tf.float32))
         else:
             raise ValueError("init_method must be 'xavier' or 'zero'")
         
         # dictionary of transformed variables for ensemble parameters
         # the parameter is the vector of model weights within each tau group
         self.parameters = {
-            'w_tau_grps': tfp.util.TransformedVariable(
+            'w_tau_groups': tfp.util.TransformedVariable(
                 initial_value=init_w(),
                 bijector=softmax_bijector,
-                name='w_tau_grps',
+                name='w_tau_groups',
                 dtype=np.float32)
         }
         
@@ -203,7 +203,7 @@ class QEns(abc.ABC):
             A tensor of shape (K, M) with model weights at each quantile level
         """
         # expand by groups to shape (K, M)
-        return tf.gather(self.parameters['w_tau_grps'], self.tau_grps_idx)
+        return tf.gather(self.parameters['w_tau_groups'], self.tau_groups_idx)
     
     
     def pinball_loss(self, y, q):
@@ -338,8 +338,8 @@ class QEns(abc.ABC):
 
             if verbose:
                 print(i)
-                print("w_tau_grps = ")
-                print(self.parameters['w_tau_grps'].numpy())
+                print("w_tau_groups = ")
+                print(self.parameters['w_tau_groups'].numpy())
                 print("loss = ")
                 print(loss.numpy())
                 print("grads = ")
