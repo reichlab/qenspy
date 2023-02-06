@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 import unittest
 
-from qenspy import qens
+import qens
 
 import tensorflow_probability as tfp
 tfb = tfp.bijectors
@@ -122,7 +122,8 @@ class Test_QEns(unittest.TestCase):
 
     qe = qens.MeanQEns(M = 3, tau = tau, tau_grps = tau_groups)
 
-    actual = qe.pinball_loss(tf.constant(y), tf.constant(q), tf.constant(tau))
+    actual = qe.pinball_loss(tf.constant(y, dtype=tf.float32),
+                             tf.constant(q, dtype=tf.float32))
 
     # calculate expected
     expected = 0
@@ -134,7 +135,9 @@ class Test_QEns(unittest.TestCase):
                 expected += (0 - tau[k]) * (q[i,k] - y[i])
     expected = expected / 6.
 
-    self.assertAlmostEqual(actual.numpy(),expected, places=7)
+    self.assertAlmostEqual(actual.numpy(), expected, places=7)
+
+
 
 if __name__ == '__main__':
   unittest.main()

@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 import unittest
 
-from qenspy import qens
+import qens
 
 
 class Test_MeanQEns(unittest.TestCase):

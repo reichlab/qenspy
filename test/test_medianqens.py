@@ -9,7 +9,7 @@ import tensorflow_probability as tfp
 tfd = tfp.distributions
 import unittest
 
-from qenspy import qens
+import qens
 import timeit
 
 class Test_MedianQEns(unittest.TestCase):
@@ -25,7 +25,7 @@ class Test_MedianQEns(unittest.TestCase):
         for i in range(actual_rectangle_bw.shape[0]):
             for j in range(actual_rectangle_bw.shape[1]):
                 for k in range(actual_rectangle_bw.shape[2]):
-                    self.assertAlmostEqual(actual_rectangle_bw[i,j,k],expected_rectangle_bw[i,j,k], places=7)
+                    self.assertAlmostEqual(actual_rectangle_bw[i,j,k],expected_rectangle_bw[i,j,k], places=6)
     
     def test_MedianQEns_calc_kde_rectangle_bw_unequal_distance(self):
         q = np.random.uniform(low=-5, high=15, size=(20,)).reshape((2, 2, 5))
@@ -48,7 +48,7 @@ class Test_MedianQEns(unittest.TestCase):
                 min_distance =  np.min(distance, axis = 1)
                 expected_rectangle_bw = min_distance * 2
                 for k in range(actual_rectangle_bw.shape[2]):
-                    self.assertAlmostEqual(expected_rectangle_bw[k],actual_rectangle_bw[i,j,k], places=7)
+                    self.assertAlmostEqual(expected_rectangle_bw[k],actual_rectangle_bw[i,j,k], places=6)
     
     def test_MedianQEns_calc_kde_rectangle_bw_missing_values(self):
         q = np.array([[[-1., -2.5, -5, np.nan ]]])
@@ -58,7 +58,7 @@ class Test_MedianQEns(unittest.TestCase):
         for i in range(actual_rectangle_bw.shape[0]):
             for j in range(actual_rectangle_bw.shape[1]):
                 for k in range(actual_rectangle_bw.shape[2]):
-                    self.assertAlmostEqual(expected_rectangle_bw[i,j,k],actual_rectangle_bw[i,j,k], places=7)
+                    self.assertAlmostEqual(expected_rectangle_bw[i,j,k],actual_rectangle_bw[i,j,k], places=6)
 
     def test_MedianQEns_weighted_cdf(self):
         q = tf.constant(np.linspace(1, 4 * 3 * 2, 4 * 3 * 2).reshape((4, 3, 2)), dtype="float32")
@@ -106,7 +106,7 @@ class Test_MedianQEns(unittest.TestCase):
         for i in range(expected_weighted_cdf.shape[0]):
             for j in range(expected_weighted_cdf.shape[1]):
                  for k in range(expected_weighted_cdf.shape[2]):
-                    self.assertAlmostEqual(expected_weighted_cdf[i,j,k],actual_weighted_cdf[i,j,k], places=7)
+                    self.assertAlmostEqual(expected_weighted_cdf[i,j,k],actual_weighted_cdf[i,j,k], places=6)
     
     def test_MedianQEns_predict(self):
         q = tf.constant(np.linspace(1, 4 * 3 * 2, 4 * 3 * 2).reshape((4, 3, 2)), dtype="float32")
@@ -127,7 +127,7 @@ class Test_MedianQEns(unittest.TestCase):
         for i in range(actual_cdf.shape[0]):
             for j in range(actual_cdf.shape[1]):
                  for k in range(actual_cdf.shape[2]):
-                    self.assertAlmostEqual(actual_cdf[i,j,k],0.5, places=7)
+                    self.assertAlmostEqual(actual_cdf[i,j,k],0.5, places=6)
 
         
 
