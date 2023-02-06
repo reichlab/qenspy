@@ -7,5 +7,11 @@ setup(name='qens',
     description='Quantile ensemble models',
     author='Serena Wang, Evan L. Ray',
     author_email='elray@umass.edu',
-    url='https://github.com/reichlab/qenspy'
+    url='https://github.com/reichlab/qenspy',
+    py_modules=['rclp'],
+    install_requires=[
+        'numpy',
+        'tensorflow>=2',
+        'tensorflow_probability>=0.16.0'
+    ]
 )
