@@ -7,6 +7,5 @@ setup(name='qens',
     description='Quantile ensemble models',
     author='Serena Wang, Evan L. Ray',
     author_email='elray@umass.edu',
-    url='https://github.com/reichlab/qenspy',
-    packages=['qens'],
+    url='https://github.com/reichlab/qenspy'
 )
