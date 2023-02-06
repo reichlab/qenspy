@@ -15,7 +15,7 @@ class QEns(abc.ABC):
     """
     def __init__(self, M, tau, tau_groups, init_method = "xavier") -> None:
         """
-        Initialize an RCLP model
+        Initialize a QEns model
         
         Parameters
         ----------
@@ -31,7 +31,7 @@ class QEns(abc.ABC):
             indicates that the component weights are shared within the first
             three, middle three, and last three quantile levels.
         init_method: string
-            initialization method for linear pool weights: "xavier" or "zero"
+            initialization method for model weights: "xavier" or "equal"
         
         Returns
         -------
@@ -59,12 +59,12 @@ class QEns(abc.ABC):
             def init_w():
                 return softmax_bijector.forward(
                     tf.random.uniform((num_tau_groups, M - 1), -w_xavier_hw, w_xavier_hw, dtype=tf.float32))
-        elif init_method == "zero":
-            # zero initialization for w; equal weights
+        elif init_method == "equal":
+            # initialize to equal weights, zeros on raw scale
             def init_w():
                 return softmax_bijector.forward(tf.zeros((num_tau_groups, M - 1), dtype=tf.float32))
         else:
-            raise ValueError("init_method must be 'xavier' or 'zero'")
+            raise ValueError("init_method must be 'xavier' or 'equal'")
         
         # dictionary of transformed variables for ensemble parameters
         # the parameter is the vector of model weights within each tau group
@@ -295,6 +295,13 @@ class QEns(abc.ABC):
             number of iterations for optimization
         learning_rate: Tensor or a floating point value.
             The learning rate
+        verbose: boolean
+            Indicator for whether to print output during parameter estimation
+        save_frequency: integer or None
+            Frequency with which to save intermediate model fits during
+            parameter estimation
+        save_path: string
+            Path to file where intermediate model fits are saved
         """
         # convert inputs to float tensors
         y = tf.convert_to_tensor(y, dtype=tf.float32)
@@ -351,7 +358,8 @@ class QEns(abc.ABC):
                     'loss_trace': loss_tr
                 })
                 
-                pickle.dump(to_save, open(str(save_path), "wb"))
+                with open(str(save_path), "wb") as f:
+                    pickle.dump(to_save, f)
         
         # update loss trace
         self.loss_trace = np.concatenate([self.loss_trace, loss_tr])
