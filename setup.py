@@ -3,12 +3,12 @@
 from distutils.core import setup
 
 setup(name='qens',
-    version='0.0.1',
+    version='1.0.0',
     description='Quantile ensemble models',
     author='Serena Wang, Evan L. Ray',
     author_email='elray@umass.edu',
     url='https://github.com/reichlab/qenspy',
-    py_modules=['rclp'],
+    py_modules=['qens'],
     install_requires=[
         'numpy',
         'tensorflow>=2',
