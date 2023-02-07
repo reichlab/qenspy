@@ -80,6 +80,24 @@ class QEns(abc.ABC):
         self.loss_trace = np.zeros((0,), np.float32)
     
     
+    def set_param(self, name, val):
+        """
+        Set the value of a model parameter
+        
+        Parameters
+        ----------
+        name: string
+            The name of the parameter to set. Must be `w_tau_groups`
+        val: tensor or array
+            The value to set the parameter to. Must match the current shape
+        """
+        if name not in self.parameters.keys():
+            raise ValueError(f'name must be one of {self.parameters.keys()}')
+        if val.shape != self.parameters[name].shape:
+            raise ValueError('Trying to set parameter value with incorrect shape')
+        self.parameters[name].assign(tf.convert_to_tensor(val, dtype = tf.float32))
+    
+    
     def model_q_ordered(model_df, tau_lvls):
         """
         Helper function intended for internal use only. Convert a data frame of
